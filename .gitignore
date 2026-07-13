@@ -11,6 +11,7 @@ dist/
 # Environment files (CRITICAL — contains API keys)
 .env
 .env.local
+backend/.env
 
 # IDE
 .idea/
@@ -21,6 +22,10 @@ dist/
 .DS_Store
 Thumbs.db
 
+# Uploads (may contain sensitive data)
+backend/uploads/*
+!backend/uploads/.gitkeep
+
 # Test/cache artifacts
 .pytest_cache/
 .coverage
@@ -28,6 +33,7 @@ htmlcov/
 *.egg-info/
 
 # Claude Code local config (per-machine)
+CLAUDE.md
 .claude/settings.local.json
 # Note: .mcp.json is tracked so the Carbon MCP is available to all contributors
 
