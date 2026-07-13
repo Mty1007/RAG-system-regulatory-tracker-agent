@@ -1,0 +1,115 @@
+name: CI
+
+on:
+  push:
+    branches: [main, dev, 'feature/**', 'fix/**']
+  pull_request:
+    branches: [main, dev]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Syntax check
+        run: python -m compileall api/ core/ store/ -q
+
+      - name: Lint check
+        run: |
+          pip install --quiet ruff
+          ruff check api/ core/ store/ --select=E,F,I --ignore=F401,E501 --exit-zero
+
+      - name: Unit tests
+        run: python -m pytest test/unit/ -v --tb=short -x
+        env:
+          PYTHONDONTWRITEBYTECODE: 1
+
+  commit-lint:
+    name: Commit message lint
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate conventional commit format
+        run: |
+          PATTERN="^(feat|fix|refactor|perf|style|test|docs|build|ops|chore)(\(.+\))?\!?: .+"
+          ERRORS=0
+
+          while IFS= read -r MSG; do
+            echo "$MSG" | grep -qE "^[a-f0-9]+ Merge " && continue
+            COMMIT_MSG=$(echo "$MSG" | sed 's/^[a-f0-9]* //')
+
+            if ! echo "$COMMIT_MSG" | grep -qE "$PATTERN"; then
+              echo "::error::Bad commit message: $COMMIT_MSG"
+              ERRORS=$((ERRORS + 1))
+            fi
+          done <<< "$(git log --oneline origin/${{ github.base_ref }}..HEAD)"
+
+          if [ $ERRORS -gt 0 ]; then
+            echo ""
+            echo "Format:  type(scope): description"
+            echo "Types:   feat fix refactor test docs build ops chore perf style"
+            echo "Example: feat(sfc): add codes and guidelines discovery"
+            exit 1
+          fi
+
+          echo "All commit messages follow conventional format"
+
+  regression-test-check:
+    name: Regression test check
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check fix commits include test changes
+        run: |
+          COMMITS=$(git log --oneline origin/${{ github.base_ref }}..HEAD)
+          FIX_COMMITS=$(echo "$COMMITS" | grep -i "fix" || true)
+
+          if [ -z "$FIX_COMMITS" ]; then
+            echo "No fix commits found — skipping check"
+            exit 0
+          fi
+
+          echo "Found fix commits:"
+          echo "$FIX_COMMITS"
+          echo ""
+
+          CHANGED_FILES=$(git diff --name-only origin/${{ github.base_ref }}..HEAD)
+          TEST_FILES=$(echo "$CHANGED_FILES" | grep -E "test/" || true)
+
+          if [ -z "$TEST_FILES" ]; then
+            echo "::warning::This PR contains fix commits but no test files were modified."
+            echo "::warning::Consider adding a regression test."
+            exit 1
+          fi
+
+          echo "Test files modified:"
+          echo "$TEST_FILES"
+          echo "Regression test check passed"

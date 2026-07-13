@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+venv/
+__pycache__/
+*.pyc
+
+# Build outputs
+dist/
+.vite/
+
+# Environment files (CRITICAL — contains API keys)
+.env
+.env.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Test/cache artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+*.egg-info/
+
+# Claude Code local config (per-machine)
+.claude/settings.local.json
+# Note: .mcp.json is tracked so the Carbon MCP is available to all contributors
+
+# Logs
+*.log
+logs/

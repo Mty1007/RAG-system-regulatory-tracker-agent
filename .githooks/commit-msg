@@ -1,0 +1,25 @@
+#!/bin/bash
+# Conventional Commits enforcement hook
+# Install: git config core.hooksPath .githooks
+
+MSG_FILE="$1"
+MSG=$(head -1 "$MSG_FILE")
+
+# Allow merge commits
+if echo "$MSG" | grep -qE "^Merge "; then
+  exit 0
+fi
+
+# Conventional commit pattern: type(optional-scope)!: description
+PATTERN="^(feat|fix|refactor|perf|style|test|docs|build|ops|chore)(\(.+\))?\!?: .+"
+
+if ! echo "$MSG" | grep -qE "$PATTERN"; then
+  echo "ERROR: Commit message does not follow Conventional Commits format." >&2
+  echo "" >&2
+  echo "  Format:  type(scope): description" >&2
+  echo "  Types:   feat fix refactor test docs build ops chore perf style" >&2
+  echo "  Example: feat(auth): add OIDC SSO login flow" >&2
+  echo "" >&2
+  echo "  Your message: $MSG" >&2
+  exit 1
+fi
