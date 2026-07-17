@@ -113,16 +113,29 @@ that, so each is handled on its own terms rather than forcing one pattern:
   is just a date range (e.g. "1 Oct 2013 - 31 Dec 2021"), not a document.
   **Only parse rows that carry `data-code-guideline-id`.** A naive "every
   `<tr>` with a `.pdf` link" approach inflates the Codes page to 99 rows and
-  Guidelines to 108 — the correct counts are 11 and 51 respectively; the
-  rest is popup date-range junk.
+  Guidelines to 108 — the real attribute-carrying rows number 12 and 51
+  respectively; the rest is popup date-range junk.
+- **The Handbook exception:** one Codes-page attribute row (the "SFC
+  Handbook for Unit Trusts and Mutual Funds...") has no direct PDF — its
+  date cell is a popup trigger (`<a class="popup-btn"
+  data-popup-id="#popuphb-<id>">`) pointing at a "Latest version" popup
+  block holding 5 PDFs: the full Handbook plus Sections I–IV. Ingest all
+  5, one record each — title from the heading above each PDF's table (the
+  Handbook title itself for the "Latest version" entry), issue_date from
+  the link text. Only follow the popup referenced from the *date cell*;
+  the "Previous versions" column's popup (`#popup<id>`, no `hb`) holds
+  date-range junk and stays excluded.
 - Title = the first `<td>` in the row (not the PDF link's own text, which is
   just a date like "2 Jan 2026").
 - Add a zero-results guard: if either page yields 0 real rows, fail loudly.
   That means the page's HTML structure changed, not that there's nothing to
   ingest.
-- **Acceptance:** Codes → 11 documents, Guidelines → 51 documents. Include a
-  saved real-HTML fixture (trimmed, but keep a popup block intact) as a
-  regression test proving the popup rows are excluded.
+- **Acceptance:** Codes → 16 documents (11 direct-PDF rows + 5 from the
+  Handbook's latest-version popup), Guidelines → 51 documents. Include a
+  saved real-HTML fixture (trimmed, but keep the Handbook row with its
+  `popuphb` block and a previous-versions popup block intact) as a
+  regression test proving the latest-version popup PDFs are included and
+  the previous-versions rows are excluded.
 
 ## Politeness
 
