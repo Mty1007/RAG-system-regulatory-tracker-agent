@@ -56,3 +56,31 @@ def test_previous_versions_excluded():
         assert "16 Nov 2022" not in doc["title"], (
             f"Previous-versions popup title leaked into results: {doc['title']!r}"
         )
+
+
+def test_discover_documents_uses_document_type_from_spec(monkeypatch):
+    """document_type on discover_documents()'s own output must match docs/SPEC.md's
+    enum ("Code"/"Guideline", singular) — discover_documents() currently passes the
+    raw LISTING_URLS keys ("Codes"/"Guidelines", plural) straight through.
+    parse_listing_page() itself is fine (the other tests above call it with the
+    correct singular value directly); the bug is in discover_documents()'s wiring.
+    """
+    html = FIXTURE.read_text(encoding="utf-8")
+
+    class FakeResponse:
+        text = html
+
+        def raise_for_status(self):
+            pass
+
+    monkeypatch.setattr(
+        "core.sfc_client.requests.get", lambda *a, **k: FakeResponse()
+    )
+
+    docs = SFCClient().discover_documents()
+    assert docs, "expected at least one document from the fixture"
+    bad_types = {d["document_type"] for d in docs} - {"Code", "Guideline"}
+    assert not bad_types, (
+        f"document_type values {bad_types} don't match docs/SPEC.md's enum "
+        "('Code'/'Guideline', singular)"
+    )
