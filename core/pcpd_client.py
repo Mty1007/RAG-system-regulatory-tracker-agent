@@ -2,9 +2,55 @@ from __future__ import annotations
 
 from typing import Any
 
-# TODO(PR 1): fill in the 4 known PCPD documents listed in docs/SPEC.md.
-# No scraping needed — this is a fixed, curated list, not a discoverable page.
-_KNOWN_DOCUMENTS: list[dict[str, str]] = []
+from core.doc_id import make_doc_id
+
+_KNOWN_DOCUMENTS: list[dict[str, str]] = [
+    {
+        "doc_id": make_doc_id("PCPD", "https://www.pcpd.org.hk/english/files/pdpo.pdf"),
+        "source": "PCPD",
+        "title": "PDPO Full Ordinance",
+        "download_url": "https://www.pcpd.org.hk/english/files/pdpo.pdf",
+        "source_url": "https://www.pcpd.org.hk/english/data_privacy_law/ordinance_at_a_Glance/overview.html",
+        "document_type": "Ordinance",
+        "issue_date": "",
+    },
+    {
+        "doc_id": make_doc_id(
+            "PCPD",
+            "https://www.pcpd.org.hk/english/education_training/individuals/public_seminars/files/PDPO_eng_2025.pdf",
+        ),
+        "source": "PCPD",
+        "title": "Six Data Protection Principles — Overview",
+        "download_url": "https://www.pcpd.org.hk/english/education_training/individuals/public_seminars/files/PDPO_eng_2025.pdf",
+        "source_url": "https://www.pcpd.org.hk/english/data_privacy_law/data_protection_principles/overview.html",
+        "document_type": "Guidance",
+        "issue_date": "",
+    },
+    {
+        "doc_id": make_doc_id(
+            "PCPD",
+            "https://www.pcpd.org.hk/english/resources_centre/publications/files/guidance_datasecurity_e.pdf",
+        ),
+        "source": "PCPD",
+        "title": "Data Security Measures Guidance",
+        "download_url": "https://www.pcpd.org.hk/english/resources_centre/publications/files/guidance_datasecurity_e.pdf",
+        "source_url": "https://www.pcpd.org.hk/english/resources_centre/publications/guidance/guidance.html",
+        "document_type": "Guidance",
+        "issue_date": "",
+    },
+    {
+        "doc_id": make_doc_id(
+            "PCPD",
+            "https://www.pcpd.org.hk/english/resources_centre/publications/files/guidance_note_dbn_e.pdf",
+        ),
+        "source": "PCPD",
+        "title": "Data Breach Handling Guidance Note",
+        "download_url": "https://www.pcpd.org.hk/english/resources_centre/publications/files/guidance_note_dbn_e.pdf",
+        "source_url": "https://www.pcpd.org.hk/english/resources_centre/publications/guidance/guidance.html",
+        "document_type": "Guidance",
+        "issue_date": "",
+    },
+]
 
 
 class PCPDClient:
@@ -15,4 +61,4 @@ class PCPDClient:
     """
 
     def discover_documents(self) -> list[dict[str, Any]]:
-        raise NotImplementedError("PR 1: implement PCPDClient.discover_documents")
+        return list(_KNOWN_DOCUMENTS)

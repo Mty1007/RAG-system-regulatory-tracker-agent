@@ -26,8 +26,13 @@ python -m pytest test/unit/ -v
 
 ## Status
 
-Scaffold only — `core/{sfc,ia,pcpd}_client.py` are stubs. Work through
-the 3 GitHub issues in order (PCPD → IA → SFC), one small PR per source.
+All three regulator clients are implemented and passing. See [`DONE.md`](DONE.md) for the full delivery summary.
+
+| PR | Source | What it does | Tests | Live count |
+|---|---|---|---|---|
+| PR 1 | PCPD | Curated list of 4 privacy documents | 2 / 2 ✓ | 4 docs |
+| PR 2 | IA | Scrapes Insurance Authority circulars by year | 2 / 2 ✓ | 18 (2026) · 42 (2025) |
+| PR 3 | SFC | Scrapes SFC Codes & Guidelines, expands Handbook popup | 3 / 3 ✓ | 16 Codes · 51 Guidelines |
 
 ## Workflow
 
