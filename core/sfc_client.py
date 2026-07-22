@@ -12,8 +12,8 @@ from core.doc_id import make_doc_id
 
 BASE_URL = "https://www.sfc.hk"
 LISTING_URLS = {
-    "Codes": f"{BASE_URL}/en/Rules-and-standards/Codes-and-guidelines/Codes",
-    "Guidelines": f"{BASE_URL}/en/Rules-and-standards/Codes-and-guidelines/Guidelines",
+    "Code": f"{BASE_URL}/en/Rules-and-standards/Codes-and-guidelines/Codes",
+    "Guideline": f"{BASE_URL}/en/Rules-and-standards/Codes-and-guidelines/Guidelines",
 }
 
 _DATE_FMTS = ("%d %b %Y", "%d %B %Y", "%b %Y", "%B %Y")
