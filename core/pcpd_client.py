@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from typing import Any
 
 from core.doc_id import make_doc_id
@@ -61,4 +62,4 @@ class PCPDClient:
     """
 
     def discover_documents(self) -> list[dict[str, Any]]:
-        return list(_KNOWN_DOCUMENTS)
+        return [copy.copy(doc) for doc in _KNOWN_DOCUMENTS]

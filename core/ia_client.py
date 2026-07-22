@@ -54,43 +54,44 @@ class IAClient:
                 raise RuntimeError(
                     f"IA circular archive returned HTTP {resp.status_code} for {year}"
                 )
+            results.extend(self.parse_page(resp.text, source_url=url))
+        return results
 
-            soup = BeautifulSoup(resp.text, "html.parser")
-            pdf_links = soup.find_all("a", href=lambda h: h and h.endswith(".pdf"))
+    @staticmethod
+    def parse_page(html: str, source_url: str) -> list[dict[str, Any]]:
+        """Parse one year's listing page HTML into normalised records.
 
-            if not pdf_links:
-                raise RuntimeError(
-                    f"IA parser found 0 PDFs for {year} — page structure may have changed"
-                )
+        Split out from discover_documents() so it can be unit-tested against
+        a saved HTML fixture without live network access.
 
-            # Build a map from each row to its date text for issue_date parsing
-            # Walk all rows, track current date
-            row_dates: dict = {}
-            table = soup.find("table")
-            if table:
-                for row in table.find_all("tr"):
-                    cells = row.find_all(["td", "th"])
-                    if cells:
-                        date_text = cells[0].get_text(strip=True)
-                        row_pdfs = row.find_all("a", href=lambda h: h and h.endswith(".pdf"))
-                        for a in row_pdfs:
-                            row_dates[id(a)] = date_text
+        Each table row is expected to have the date in the first cell and one
+        or more PDF links in the remaining cells. All <table> elements on the
+        page are walked — not just the first one.
+        """
+        soup = BeautifulSoup(html, "html.parser")
+        results: list[dict[str, Any]] = []
 
-            for a in pdf_links:
+        for row in soup.find_all("tr"):
+            cells = row.find_all(["td", "th"])
+            if not cells:
+                continue
+            date_text = cells[0].get_text(strip=True)
+            for a in row.find_all("a", href=lambda h: h and h.endswith(".pdf")):
                 href = a["href"]
-                # Make absolute URL
-                download_url = href if href.startswith("http") else urljoin(url, href)
-                title = a.get_text(strip=True)
-                date_text = row_dates.get(id(a), "")
-                issue_date = _parse_date(date_text)
+                download_url = href if href.startswith("http") else urljoin(source_url, href)
                 results.append({
                     "doc_id": make_doc_id("IA", download_url),
                     "source": "IA",
-                    "title": title,
+                    "title": a.get_text(strip=True),
                     "download_url": download_url,
-                    "source_url": url,
+                    "source_url": source_url,
                     "document_type": "Circular",
-                    "issue_date": issue_date,
+                    "issue_date": _parse_date(date_text),
                 })
+
+        if not results:
+            raise RuntimeError(
+                f"IA parser found 0 PDFs for {source_url} — page structure may have changed"
+            )
 
         return results
