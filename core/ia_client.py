@@ -46,9 +46,10 @@ class IAClient:
                 time.sleep(0.75)
             url = LISTING_URL_TMPL.format(year=year)
             resp = requests.get(url, timeout=self.timeout_sec)
-            if resp.status_code == 404:
+            if resp.status_code in (403, 404):
                 raise ValueError(
-                    f"IA circular archive has no data for {year}: HTTP 404 (predates the archive)"
+                    f"IA circular archive has no data for {year}: "
+                    f"HTTP {resp.status_code} (predates the archive)"
                 )
             if resp.status_code != 200:
                 raise RuntimeError(

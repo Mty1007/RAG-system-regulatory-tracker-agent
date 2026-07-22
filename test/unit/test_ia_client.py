@@ -51,8 +51,11 @@ def test_parse_page_correlates_dates_across_all_tables():
 
 
 def test_discover_documents_404_guard():
-    """A year that predates the IA archive must raise ValueError, not silently return []."""
-    with pytest.raises(ValueError, match="HTTP 404"):
+    """A year that predates the IA archive must raise ValueError, not silently return [].
+
+    The IA site returns 403 (not 404) for years that predate the archive.
+    """
+    with pytest.raises(ValueError, match="HTTP 40"):
         IAClient().discover_documents(start_year=2004, end_year=2004)
 
 
