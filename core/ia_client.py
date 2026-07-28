@@ -39,13 +39,32 @@ class IAClient:
     def __init__(self, timeout_sec: int = 45):
         self.timeout_sec = timeout_sec
 
+    # Browser-like headers to avoid bot-protection 403s on ia.org.hk
+    _HEADERS = {
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/120.0.0.0 Safari/537.36"
+        ),
+        "Accept": (
+            "text/html,application/xhtml+xml,application/xml;q=0.9,"
+            "image/avif,image/webp,*/*;q=0.8"
+        ),
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Connection": "keep-alive",
+        "Upgrade-Insecure-Requests": "1",
+    }
+
     def discover_documents(self, start_year: int, end_year: int) -> list[dict[str, Any]]:
+        session = requests.Session()
+        session.headers.update(self._HEADERS)
         results: list[dict[str, Any]] = []
         for i, year in enumerate(range(start_year, end_year + 1)):
             if i > 0:
                 time.sleep(0.75)
             url = LISTING_URL_TMPL.format(year=year)
-            resp = requests.get(url, timeout=self.timeout_sec)
+            resp = session.get(url, timeout=self.timeout_sec)
             if resp.status_code in (403, 404):
                 raise ValueError(
                     f"IA circular archive has no data for {year}: "

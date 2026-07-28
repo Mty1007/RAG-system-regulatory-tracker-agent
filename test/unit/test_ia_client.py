@@ -81,9 +81,13 @@ def test_discover_documents_correlates_dates_across_all_tables(monkeypatch):
         status_code = 200
         text = html
 
-    monkeypatch.setattr(
-        "core.ia_client.requests.get", lambda *a, **k: FakeResponse()
-    )
+    class FakeSession:
+        def update(self, *a, **k): pass
+        def get(self, *a, **k): return FakeResponse()
+        @property
+        def headers(self): return self
+
+    monkeypatch.setattr("core.ia_client.requests.Session", lambda: FakeSession())
 
     docs = IAClient().discover_documents(start_year=2026, end_year=2026)
     by_title = {d["title"]: d for d in docs}
