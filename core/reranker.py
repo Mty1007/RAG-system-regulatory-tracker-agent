@@ -1,12 +1,16 @@
-"""Reranker — WatsonX Rerank API with local cross-encoder fallback.
+"""Reranker — pass-through for AstraDB mode, WatsonX and local fallbacks.
 
-After hybrid retrieval, the top-N candidate chunks are reranked by a
-cross-encoder model that jointly scores (query, passage) pairs.  This
-typically yields a significant precision improvement over bi-encoder
-retrieval alone.
+After hybrid retrieval, chunks can optionally be reranked by a cross-encoder.
+
+When RERANKER=astradb (default), reranking is performed inside
+``core/retriever.retrieve()`` via AstraDB's ``find_and_rerank()`` API
+(nvidia/llama-3.2-nv-rerankqa-1b-v2).  The ``rerank()`` function here is a
+no-op pass-through in that case — it simply returns the already-reranked
+chunks from the retriever.
 
 Behaviour is controlled by the ``RERANKER`` env var:
-    ``watsonx``  — IBM WatsonX Rerank API  (default)
+    ``astradb``  — pass-through (reranking already done in retriever)  [default]
+    ``watsonx``  — IBM WatsonX Rerank API
     ``local``    — sentence-transformers cross-encoder (free, no API call)
 
 Required environment variables (WatsonX mode)
@@ -15,8 +19,6 @@ WATSONX_API_KEY
 WATSONX_PROJECT_ID
 WATSONX_URL
 RERANKER_MODEL    WatsonX rerank model ID
-                  (defaults to "cross-encoder/ms-marco-minilm-l-12-v2"
-                   — check your WatsonX plan for available rerank models)
 
 Required packages (local mode only — not in requirements.txt by default)
 ------------------------------------------------------------------------
@@ -134,6 +136,12 @@ def rerank(
 ) -> list[dict[str, Any]]:
     """Rerank *chunks* and return the top-K most relevant ones.
 
+    When RERANKER=astradb (default), reranking is already done inside
+    ``core/retriever.retrieve()`` via AstraDB's ``find_and_rerank()`` API
+    (nvidia/llama-3.2-nv-rerankqa-1b-v2).  In that case this function is a
+    pass-through — it returns the first top_k chunks as-is (already sorted
+    by rerank score from the retriever).
+
     Parameters
     ----------
     query:
@@ -141,27 +149,31 @@ def rerank(
     chunks:
         Candidate chunks as returned by ``core/retriever.retrieve()``.
     top_k:
-        Number of chunks to return after reranking.
+        Number of chunks to return.
 
     Returns
     -------
-    List of chunk dicts sorted by descending rerank score, each with an
-    added ``rerank_score`` field.
+    List of chunk dicts sorted by descending rerank score, each with a
+    ``rerank_score`` field.
     """
     if not chunks:
         return []
 
-    backend = os.environ.get("RERANKER", "watsonx").lower()
+    backend = os.environ.get("RERANKER", "astradb").lower()
 
     logger.info(
         "rerank: backend=%s  candidates=%d  top_k=%d", backend, len(chunks), top_k
     )
 
+    if backend == "astradb":
+        # Reranking already performed by AstraDB find_and_rerank() in retriever.
+        # Just return the top_k chunks — already sorted by rerank_score.
+        return chunks[:top_k]
     if backend == "watsonx":
         return _rerank_watsonx(query, chunks, top_k)
     if backend == "local":
         return _rerank_local(query, chunks, top_k)
 
     raise ValueError(
-        f"Unknown RERANKER value '{backend}'. Set to 'watsonx' or 'local'."
+        f"Unknown RERANKER value '{backend}'. Set to 'astradb', 'watsonx', or 'local'."
     )
