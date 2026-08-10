@@ -10,7 +10,7 @@ Document shape in the collection
     "_id":             "<doc_id>__c<n>",   # same as chunk_id
     "$vector":         [float, …],         # 1536-dim WatsonX embedding
     "doc_id":          str,                # links to COS + layout_elements
-    "source":          str,                # "SFC" | "IA" | "PCPD"
+    "source":          str,                # "SFC" | "PCPD"
     "chunk_index":     int,
     "section_heading": str,
     "page_start":      int,
@@ -84,30 +84,31 @@ class AstraChunkStore:
                 f"chunks/vectors length mismatch: {len(chunks)} vs {len(vectors)}"
             )
 
-        documents = []
         for chunk, vector in zip(chunks, vectors):
-            documents.append(
-                {
-                    "_id":             chunk["chunk_id"],
-                    "$vector":         vector,
-                    "doc_id":          chunk["doc_id"],
-                    "source":          chunk.get("source", ""),
-                    "chunk_index":     chunk["chunk_index"],
-                    "section_heading": chunk.get("section_heading", ""),
-                    "page_start":      chunk.get("page_start", 0),
-                    "text":            chunk["text"],
-                    "token_count":     chunk.get("token_count", 0),
-                }
-            )
+            doc = {
+                "_id":             chunk["chunk_id"],
+                "$vector":         vector,
+                # $lexical is AstraDB's BM25 index field.  Populate it with the
+                # same text as the chunk so keyword search works for both
+                # English and Chinese queries (the collection uses the standard
+                # analyzer which tokenises CJK characters individually).
+                "$lexical":        chunk["text"],
+                "doc_id":          chunk["doc_id"],
+                "source":          chunk.get("source", ""),
+                "chunk_index":     chunk["chunk_index"],
+                "section_heading": chunk.get("section_heading", ""),
+                "page_start":      chunk.get("page_start", 0),
+                "text":            chunk["text"],
+                "token_count":     chunk.get("token_count", 0),
+            }
+            # replace_one with upsert=True inserts if absent, replaces if present
+            self._col.replace_one({"_id": doc["_id"]}, doc, upsert=True)
 
-        # upsert_many replaces existing docs with the same _id
-        result = self._col.upsert_many(documents)
         logger.info(
             "Upserted %d chunks for doc_id=%s",
-            len(documents),
+            len(chunks),
             chunks[0]["doc_id"] if chunks else "?",
         )
-        return result
 
     # ── read ──────────────────────────────────────────────────────────────────
 

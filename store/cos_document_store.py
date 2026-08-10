@@ -97,7 +97,7 @@ class COSDocumentStore:
             if obj["Key"].endswith(".json")
         ]
         if source:
-            # doc_id keys are like "pcpd-<hash>", "ia-<hash>", "sfc-<hash>"
+            # doc_id keys are like "pcpd-<hash>", "sfc-<hash>"
             keys = [k for k in keys if k.startswith(f"docs/{source.lower()}-")]
 
         docs: list[dict[str, Any]] = []

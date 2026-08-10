@@ -17,8 +17,6 @@ router = APIRouter()
 
 def _discover(req: DiscoverRequest) -> list[dict]:
     client = get_regulator_client(req.source)
-    if req.source == "IA":
-        return client.discover_documents(start_year=req.start_year, end_year=req.end_year)
     return client.discover_documents()
 
 

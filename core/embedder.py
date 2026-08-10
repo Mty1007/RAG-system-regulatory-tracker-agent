@@ -33,8 +33,18 @@ _EMBED_PATH = "/ml/v1/text/embeddings?version=2023-10-25"
 # IAM token endpoint
 _IAM_URL = "https://iam.cloud.ibm.com/identity/token"
 
-# Maximum texts per single API call (WatsonX limit)
-BATCH_SIZE = 10
+# Maximum texts per single API call.
+# ibm/granite-embedding-278m-multilingual enforces its 512-token limit
+# across the entire batch payload, not per individual text.  Sending one
+# text at a time is the only reliable way to stay under the limit.
+BATCH_SIZE = 1
+
+# All current WatsonX embedding models have a 512-token hard limit.
+# ibm/granite-embedding-278m-multilingual tokenises aggressively:
+#   - dot-leaders ("......1")  → 3–5 tokens per word
+#   - CJK characters           → 2–4 tokens per character (counted as 1 word)
+# _MAX_WORDS=100 gives ~400 tokens worst-case for mixed EN/ZH regulatory text.
+_MAX_WORDS = 100
 
 # Token cache: (access_token, expiry_epoch)
 _token_cache: tuple[str, float] = ("", 0.0)
@@ -103,6 +113,22 @@ def embed_texts(
     token = _get_iam_token(_api_key)
     url   = _base_url + _EMBED_PATH
 
+    # Normalise and truncate each text before embedding:
+    # 1. Collapse dot-leaders (e.g. "........1" → " 1") — these appear in
+    #    tables of contents and tokenise at 3–5 tokens per dot sequence.
+    # 2. Hard-truncate by character count — more reliable than word count for
+    #    mixed English/Chinese text where a single CJK "word" can be 10+ tokens.
+    #    600 chars ≈ 400 tokens for worst-case dense Chinese regulatory text.
+    import re as _re
+    _dot_leader = _re.compile(r'\.{3,}')
+    _MAX_CHARS = 600
+
+    def _truncate(text: str) -> str:
+        text = _dot_leader.sub(' ', text)
+        return text[:_MAX_CHARS] if len(text) > _MAX_CHARS else text
+
+    texts = [_truncate(t) for t in texts]
+
     vectors: list[list[float]] = []
 
     for batch_start in range(0, len(texts), BATCH_SIZE):
@@ -118,7 +144,7 @@ def embed_texts(
                 "Authorization": f"Bearer {token}",
                 "Content-Type": "application/json",
             },
-            timeout=60,
+            timeout=120,
         )
         if resp.status_code != 200:
             raise RuntimeError(

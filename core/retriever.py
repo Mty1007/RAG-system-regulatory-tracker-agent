@@ -98,7 +98,7 @@ def retrieve(
     query:
         User's natural-language question.
     source_filter:
-        Optional source restriction: ``"SFC"``, ``"IA"``, or ``"PCPD"``.
+        Optional source restriction: ``"SFC"`` or ``"PCPD"``.
         Pass ``None`` to search across all sources.
     top_n:
         Number of candidates to retrieve from each of the two searches
@@ -132,12 +132,13 @@ def retrieve(
     semantic_hits = list(semantic_cursor)
     logger.debug("Semantic hits: %d", len(semantic_hits))
 
-    # ── 2. keyword (text) search ──────────────────────────────────────────────
-    # AstraDB lexical search: $text must be a top-level sort key, not a filter
-    # field.  Source pre-filtering is applied via the filter doc as before.
+    # ── 2. keyword (BM25 lexical) search ─────────────────────────────────────
+    # AstraDB Data API v3: the lexical sort key is "$lexical" (not "$text").
+    # Chunks must have been inserted with a "$lexical" field for BM25 to work;
+    # see store/astra_chunk_store.py.
     keyword_cursor = collection.find(
         filter_doc,
-        sort={"$text": query},
+        sort={"$lexical": query},
         limit=top_n,
         projection={"$vector": 0},
     )

@@ -32,8 +32,8 @@ _MAX_NEW_TOKENS = 512
 # System instruction prepended to every prompt
 _SYSTEM_PROMPT = """\
 You are a regulatory compliance assistant specialising in Hong Kong financial \
-regulations from the SFC (Securities and Futures Commission), IA (Insurance \
-Authority), and PCPD (Privacy Commissioner for Personal Data).
+regulations from the SFC (Securities and Futures Commission) and PCPD \
+(Privacy Commissioner for Personal Data).
 
 Answer the user's question using ONLY the context passages provided below. \
 Be precise and cite the specific section or document where you found the answer. \

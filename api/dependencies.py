@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 
-from core.ia_client import IAClient
 from core.pcpd_client import PCPDClient
 from core.sfc_client import SFCClient
 from store.document_store import DocumentStore
@@ -27,8 +26,6 @@ def get_document_store():
 def get_regulator_client(source: str):
     if source == "SFC":
         return SFCClient()
-    if source == "IA":
-        return IAClient()
     if source == "PCPD":
         return PCPDClient()
     raise ValueError(f"Unknown source: {source}")

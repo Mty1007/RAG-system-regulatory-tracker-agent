@@ -4,14 +4,35 @@
 For every ``transformed/<doc_id>.md`` object in COS this script will:
   1. Download the Markdown from COS.
   2. Split it into chunks (heading-aware, sliding-window fallback).
-  3. Embed each chunk via WatsonX (ibm/slate-30m-english-rtrvr-v2, 1536-dim).
+  3. Embed each chunk via WatsonX
+     (ibm/granite-embedding-278m-multilingual, 768-dim).
   4. Write chunks + vectors to AstraDB ``chunks`` collection.
+     Each document includes ``$vector`` (ANN semantic search) and
+     ``$lexical`` (BM25 keyword search) for full hybrid retrieval.
   5. Write a JSONL backup to COS under ``chunks/<doc_id>.jsonl``
      (no vectors — those are owned by AstraDB; the JSONL is for audit /
      re-processing).
 
-All steps are idempotent — already-chunked docs are skipped unless
-``FORCE_RECHUNK=1`` is set.
+COS layout
+----------
+  pdfs/<doc_id>.pdf          source PDF (authoritative, never modified)
+  transformed/<doc_id>.md    Docling Markdown output (canonical readable)
+  chunks/<doc_id>.jsonl      chunk text backup (no vectors)
+
+Source label is derived from the doc_id prefix (``sfc-xxx`` -> ``"SFC"``)
+-- no ``docs/<doc_id>.json`` metadata records are read or required.
+
+Idempotency
+-----------
+A doc is skipped only when BOTH of these are true:
+  - ``chunks/<doc_id>.jsonl`` exists in COS  (the backup was written)
+  - AstraDB contains exactly as many chunks as the JSONL backup
+
+This prevents the previous failure mode where a network disconnect mid-upsert
+left the JSONL in COS but AstraDB with stale/partial/duplicate chunks --
+causing every subsequent run to skip the broken doc.
+
+Set ``FORCE_RECHUNK=1`` to unconditionally re-process every doc.
 
 The original PDFs (``pdfs/``) and Docling output (``transformed/``) are
 never modified.
@@ -22,9 +43,11 @@ Usage
 
 Optional env overrides
 ----------------------
-OCR_SOURCE       only process one source prefix: PCPD | IA | SFC
-FORCE_RECHUNK    set to "1" to re-chunk docs that already have chunks
-SKIP_CHUNK_STORE set to "1" to skip writing to AstraDB (dry-run)
+OCR_SOURCE        only process one source prefix: PCPD | SFC
+FORCE_RECHUNK     set to "1" to re-chunk docs that already have chunks
+SKIP_CHUNK_STORE  set to "1" to skip writing to AstraDB (dry-run)
+SKIP_LAYOUT_STORE set to "1" to skip the layout store connection (default: 1,
+                  because TextExtractionsV2 does not expose bbox data)
 """
 
 from __future__ import annotations
@@ -110,13 +133,17 @@ def download_markdown(key: str) -> str:
     return cos.get_object(Bucket=BUCKET, Key=key)["Body"].read().decode("utf-8")
 
 
-def get_doc_metadata(doc_id: str) -> dict:
-    """Read doc metadata from COS docs/<doc_id>.json for source + page info."""
-    try:
-        obj = cos.get_object(Bucket=BUCKET, Key=f"docs/{doc_id}.json")
-        return json.loads(obj["Body"].read())
-    except ClientError:
-        return {}
+def get_doc_source(doc_id: str) -> str:
+    """Derive the source label from the doc_id prefix.
+
+    doc_ids are minted as ``<source_lower>-<sha1[:12]>`` by ``core/doc_id.py``
+    e.g. ``sfc-a1b2c3d4e5f6``  ->  ``"SFC"``
+         ``pcpd-a1b2c3d4e5f6`` ->  ``"PCPD"``
+
+    COS ``docs/<doc_id>.json`` records are NOT used by this pipeline.
+    COS holds only: pdfs/, transformed/, chunks/.
+    """
+    return doc_id.split("-")[0].upper()
 
 
 def resolve_page_starts(
@@ -146,13 +173,13 @@ def resolve_page_starts(
         chunk["page_start"] = page
 
 
-def jsonl_exists(doc_id: str) -> bool:
-    """Return True if COS chunks/<doc_id>.jsonl already exists."""
+def jsonl_chunk_count(doc_id: str) -> int:
+    """Return the number of chunks in COS chunks/<doc_id>.jsonl, or -1 if absent."""
     try:
-        cos.head_object(Bucket=BUCKET, Key=f"chunks/{doc_id}.jsonl")
-        return True
+        body = cos.get_object(Bucket=BUCKET, Key=f"chunks/{doc_id}.jsonl")["Body"].read()
+        return sum(1 for ln in body.decode("utf-8").splitlines() if ln.strip())
     except ClientError:
-        return False
+        return -1
 
 
 def write_jsonl_backup(doc_id: str, chunks: list[dict]) -> None:
@@ -174,6 +201,9 @@ def main() -> None:
     source_filter  = os.environ.get("OCR_SOURCE")
     force_rechunk  = os.environ.get("FORCE_RECHUNK", "0") == "1"
     skip_astra     = os.environ.get("SKIP_CHUNK_STORE", "0") == "1"
+    # TextExtractionsV2 does not expose bbox data so layout_elements is always
+    # empty — skip the Cassandra connection by default to avoid port-29042 timeouts.
+    skip_layout    = os.environ.get("SKIP_LAYOUT_STORE", "1") == "1"
 
     if source_filter:
         log.info("Source filter: %s", source_filter)
@@ -181,13 +211,17 @@ def main() -> None:
         log.info("FORCE_RECHUNK=1 — already-chunked docs will be re-processed")
     if skip_astra:
         log.info("SKIP_CHUNK_STORE=1 — AstraDB writes disabled (dry-run)")
+    if skip_layout:
+        log.info("SKIP_LAYOUT_STORE=1 — layout store skipped (no bbox data from TextExtractionsV2)")
 
     chunk_store: AstraChunkStore | None = None
     layout_store: AstraLayoutStore | None = None
     if not skip_astra:
         chunk_store = AstraChunkStore()
+    if not skip_astra and not skip_layout:
         layout_store = AstraLayoutStore()
-        log.info("AstraDB chunk store and layout store connected")
+    if not skip_astra:
+        log.info("AstraDB chunk store connected")
 
     md_keys = list_transformed_keys(source_filter)
     log.info("Found %d Markdown files to process", len(md_keys))
@@ -198,11 +232,33 @@ def main() -> None:
         for key in md_keys:
             doc_id = key.removeprefix("transformed/").removesuffix(".md")
 
-            # idempotency check — skip if JSONL backup already exists
-            if not force_rechunk and jsonl_exists(doc_id):
-                log.info("SKIP  %s (already chunked)", doc_id)
-                skipped += 1
-                continue
+            # idempotency check: skip only when JSONL backup exists AND AstraDB
+            # chunk count matches (guards against mid-upsert disconnects that
+            # leave COS and AstraDB out of sync).
+            if not force_rechunk:
+                cos_count = jsonl_chunk_count(doc_id)
+                if cos_count >= 0:
+                    if chunk_store is not None:
+                        astra_count = len(list(
+                            chunk_store._col.find(
+                                {"doc_id": doc_id},
+                                projection={"_id": 1},
+                            )
+                        ))
+                        if astra_count == cos_count:
+                            log.info("SKIP  %s (%d chunks, AstraDB in sync)", doc_id, cos_count)
+                            skipped += 1
+                            continue
+                        else:
+                            log.warning(
+                                "RESYNC %s — JSONL=%d AstraDB=%d, re-chunking",
+                                doc_id, cos_count, astra_count,
+                            )
+                    else:
+                        # SKIP_CHUNK_STORE mode: JSONL presence is enough
+                        log.info("SKIP  %s (already chunked, AstraDB writes disabled)", doc_id)
+                        skipped += 1
+                        continue
 
             try:
                 log.info("CHUNK %s ...", doc_id)
@@ -210,9 +266,8 @@ def main() -> None:
                 # ── 1. download MD ────────────────────────────────────────────
                 markdown = download_markdown(key)
 
-                # ── 2. get source from doc metadata ──────────────────────────
-                meta   = get_doc_metadata(doc_id)
-                source = meta.get("source", doc_id.split("-")[0].upper())
+                # ── 2. derive source from doc_id prefix ──────────────────────
+                source = get_doc_source(doc_id)
 
                 # ── 3. chunk ─────────────────────────────────────────────────
                 chunks = chunk_markdown(doc_id, markdown)
@@ -241,6 +296,9 @@ def main() -> None:
 
                 # ── 5a. write to AstraDB ──────────────────────────────────────
                 if chunk_store is not None:
+                    # Delete first so stale chunk IDs (from a previous different
+                    # chunking run) don't accumulate alongside the new ones.
+                    chunk_store.delete_chunks(doc_id)
                     chunk_store.upsert_chunks(chunks, vectors)
 
                 # ── 5b. write JSONL backup to COS ─────────────────────────────

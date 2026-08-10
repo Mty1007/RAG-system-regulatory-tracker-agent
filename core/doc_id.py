@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 from urllib.parse import urlparse
 
-SOURCES = ("SFC", "IA", "PCPD")
+SOURCES = ("SFC", "PCPD")
 
 
 def make_doc_id(source: str, download_url: str) -> str:

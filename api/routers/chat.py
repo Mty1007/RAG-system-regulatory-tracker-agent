@@ -59,10 +59,10 @@ def chat(req: ChatRequest) -> ChatResponse:
     3. Generate a grounded answer with IBM Granite via WatsonX.
     """
     source = req.source_filter.upper() if req.source_filter else None
-    if source and source not in {"SFC", "IA", "PCPD"}:
+    if source and source not in {"SFC", "PCPD"}:
         raise HTTPException(
             status_code=422,
-            detail=f"source_filter must be one of SFC, IA, PCPD (got '{source}')",
+            detail=f"source_filter must be one of SFC, PCPD (got '{source}')",
         )
 
     # retrieve more candidates than top_k so the reranker has room to work
