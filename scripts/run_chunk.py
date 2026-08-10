@@ -1,15 +1,15 @@
 #!/usr/bin/env python
-"""Chunk + embed pipeline.
+"""Chunk pipeline.
 
 For every ``transformed/<doc_id>.md`` object in COS this script will:
   1. Download the Markdown from COS.
   2. Split it into chunks (heading-aware, sliding-window fallback).
-  3. Embed each chunk via WatsonX
-     (ibm/granite-embedding-278m-multilingual, 768-dim).
-  4. Write chunks + vectors to AstraDB ``chunks`` collection.
-     Each document includes ``$vector`` (ANN semantic search) and
+  3. Write chunks to AstraDB ``chunks`` collection via ``$vectorize``.
+     AstraDB auto-embeds each chunk using the NVIDIA
+     ``nvidia/nv-embedqa-e5-v5`` model — no WatsonX embedding call needed.
+     Each document includes ``$vectorize`` (ANN semantic search) and
      ``$lexical`` (BM25 keyword search) for full hybrid retrieval.
-  5. Write a JSONL backup to COS under ``chunks/<doc_id>.jsonl``
+  4. Write a JSONL backup to COS under ``chunks/<doc_id>.jsonl``
      (no vectors — those are owned by AstraDB; the JSONL is for audit /
      re-processing).
 
@@ -79,7 +79,6 @@ log = logging.getLogger("run_chunk")
 # ── env-var check ─────────────────────────────────────────────────────────────
 REQUIRED = [
     "COS_API_KEY", "COS_INSTANCE_CRN", "COS_ENDPOINT", "COS_BUCKET",
-    "WATSONX_API_KEY", "WATSONX_PROJECT_ID", "WATSONX_URL", "WATSONX_EMBED_MODEL",
     "ASTRA_DB_APPLICATION_TOKEN", "ASTRA_DB_API_ENDPOINT",
 ]
 missing = [v for v in REQUIRED if not os.environ.get(v)]

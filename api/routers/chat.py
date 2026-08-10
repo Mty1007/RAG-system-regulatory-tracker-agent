@@ -23,11 +23,11 @@ class ChatRequest(BaseModel):
     question: str = Field(..., min_length=1, max_length=2000)
     source_filter: Optional[str] = Field(
         default=None,
-        description="Restrict retrieval to one regulator: SFC, IA, or PCPD. "
+        description="Restrict retrieval to one regulator: SFC or PCPD. "
                     "Omit or pass null to search all sources.",
     )
     top_k: int = Field(
-        default=5,
+        default=8,
         ge=1,
         le=20,
         description="Number of chunks to pass to the LLM after reranking.",
@@ -54,9 +54,9 @@ class ChatResponse(BaseModel):
 def chat(req: ChatRequest) -> ChatResponse:
     """Answer a regulatory question using hybrid RAG.
 
-    1. Embed the question and run hybrid (ANN + keyword) search on AstraDB.
-    2. Rerank the top-N candidates (WatsonX or local cross-encoder).
-    3. Generate a grounded answer with IBM Granite via WatsonX.
+    1. Run hybrid (ANN + BM25 keyword) search on AstraDB via find_and_rerank().
+    2. NVIDIA reranker trims candidates to top_k inside AstraDB.
+    3. Generate a grounded answer with Mistral via WatsonX.
     """
     source = req.source_filter.upper() if req.source_filter else None
     if source and source not in {"SFC", "PCPD"}:
@@ -65,15 +65,17 @@ def chat(req: ChatRequest) -> ChatResponse:
             detail=f"source_filter must be one of SFC, PCPD (got '{source}')",
         )
 
-    # retrieve more candidates than top_k so the reranker has room to work
-    retrieve_n = min(req.top_k * 4, 20)
+    # Retrieve more candidates (top_n) than the final count (top_k) so the
+    # NVIDIA reranker inside find_and_rerank() has room to work, then returns
+    # only top_k results — already sorted by rerank score.
+    retrieve_n = min(req.top_k * 4, 30)
 
     try:
         candidates = retrieve(
             req.question,
             source_filter=source,
             top_n=retrieve_n,
-            top_k=retrieve_n,
+            top_k=req.top_k,
         )
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Retrieval error: {exc}") from exc

@@ -49,7 +49,7 @@ def retrieve(
     *,
     source_filter: Optional[str] = None,
     top_n: int = 20,
-    top_k: int = 5,
+    top_k: int = 8,
 ) -> list[dict[str, Any]]:
     """Return the top-K most relevant chunks for *query*.
 

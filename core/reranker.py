@@ -44,16 +44,13 @@ _DEFAULT_WX_RERANK_MODEL = "cross-encoder/ms-marco-minilm-l-12-v2"
 # Default local cross-encoder model (sentence-transformers)
 _DEFAULT_LOCAL_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 
-# IAM token — reuse the cache from embedder if already fetched
-from core.embedder import _get_iam_token  # noqa: E402 (internal reuse)
-
-
 def _rerank_watsonx(
     query: str,
     chunks: list[dict[str, Any]],
     top_k: int,
 ) -> list[dict[str, Any]]:
     """Rerank *chunks* using the WatsonX Rerank API."""
+    from core.embedder import _get_iam_token  # only needed for this path
     api_key    = os.environ["WATSONX_API_KEY"]
     project_id = os.environ["WATSONX_PROJECT_ID"]
     base_url   = os.environ["WATSONX_URL"].rstrip("/")

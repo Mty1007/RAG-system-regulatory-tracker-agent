@@ -1,4 +1,4 @@
-"""WatsonX Granite LLM answer generator.
+"""Mistral LLM answer generator (via WatsonX).
 
 Given a user question and a list of reranked context chunks, this module
 builds a prompt and calls the WatsonX ``/ml/v1/text/generation`` endpoint
@@ -9,7 +9,7 @@ Required environment variables
 WATSONX_API_KEY
 WATSONX_PROJECT_ID
 WATSONX_URL
-WATSONX_LLM_MODEL    e.g. ibm/granite-13b-chat-v2
+WATSONX_LLM_MODEL    e.g. mistralai/mistral-medium-2505
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 _GENERATE_PATH = "/ml/v1/text/generation?version=2023-10-25"
 
 # Maximum tokens to reserve for the LLM response
-_MAX_NEW_TOKENS = 512
+_MAX_NEW_TOKENS = 1024
 
 # System instruction prepended to every prompt
 _SYSTEM_PROMPT = """\
@@ -92,7 +92,7 @@ def generate_answer(
     api_key    = os.environ["WATSONX_API_KEY"]
     project_id = os.environ["WATSONX_PROJECT_ID"]
     base_url   = os.environ["WATSONX_URL"].rstrip("/")
-    model_id   = os.environ.get("WATSONX_LLM_MODEL", "ibm/granite-13b-chat-v2")
+    model_id   = os.environ.get("WATSONX_LLM_MODEL", "mistralai/mistral-medium-2505")
 
     token  = _get_iam_token(api_key)
     url    = base_url + _GENERATE_PATH
@@ -115,7 +115,7 @@ def generate_answer(
             "Authorization": f"Bearer {token}",
             "Content-Type":  "application/json",
         },
-        timeout=60,
+        timeout=90,
     )
 
     if resp.status_code != 200:
@@ -134,16 +134,23 @@ def generate_answer(
     if not cited_ids:
         cited_ids = {c.get("doc_id", "") for c in chunks}
 
-    citations = [
-        {
-            "doc_id":          c.get("doc_id", ""),
-            "source":          c.get("source", ""),
-            "section_heading": c.get("section_heading", ""),
-            "page_start":      c.get("page_start", 0),
-        }
-        for c in chunks
-        if c.get("doc_id", "") in cited_ids
-    ]
+    seen: set[tuple[str, str]] = set()
+    citations = []
+    for c in chunks:
+        if c.get("doc_id", "") not in cited_ids:
+            continue
+        key = (c.get("doc_id", ""), c.get("section_heading", ""))
+        if key in seen:
+            continue
+        seen.add(key)
+        citations.append(
+            {
+                "doc_id":          c.get("doc_id", ""),
+                "source":          c.get("source", ""),
+                "section_heading": c.get("section_heading", ""),
+                "page_start":      c.get("page_start", 0),
+            }
+        )
 
     logger.info(
         "generate_answer: model=%s  chunks=%d  answer_len=%d",

@@ -1,17 +1,23 @@
 #!/usr/bin/env python
 """One-time setup: create all AstraDB collections for the RAG pipeline.
 
-Safe to re-run — uses check_exists=True so it will not error on an
-existing collection.
+Safe to re-run — skips creation if the collection already exists.
 
 Collection created
 ------------------
 chunks      One document per text chunk from a regulatory PDF.
-            Stores a 1536-dim $vector produced by WatsonX.
-            WE generate the embeddings — AstraDB only stores and searches
-            them.  The AstraDB template 'service / providerKey' block is
-            intentionally omitted — that is only for AstraDB-managed
-            providers (OpenAI etc.) which we do NOT use.
+
+            Uses AstraDB vectorize with the NVIDIA
+            ``nvidia/nv-embedqa-e5-v5`` embedding model (1024-dim, COSINE).
+            Text passed in the ``$vectorize`` field is auto-embedded by
+            AstraDB — no WatsonX embedding call is needed.
+
+            BM25 keyword search is enabled via the ``$lexical`` field,
+            which is populated alongside ``$vectorize`` on every insert.
+
+            Reranking is performed in-place by ``find_and_rerank()`` using
+            the collection's built-in NVIDIA reranker
+            (nvidia/llama-3.2-nv-rerankqa-1b-v2).
 
 Usage
 -----
@@ -31,7 +37,7 @@ import os
 import sys
 from pathlib import Path
 
-# ── load .env (same pattern as run_ocr.py) ────────────────────────────────────
+# ── load .env ─────────────────────────────────────────────────────────────────
 _env_path = Path(__file__).resolve().parent.parent / ".env"
 if _env_path.exists():
     for _line in _env_path.read_text().splitlines():
@@ -57,29 +63,29 @@ if missing:
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from astrapy import DataAPIClient                                       # noqa: E402
-from astrapy.constants import VectorMetric                              # noqa: E402
-from astrapy.info import CollectionDefinition, CollectionVectorOptions  # noqa: E402
+from astrapy import DataAPIClient                                             # noqa: E402
+from astrapy.constants import VectorMetric                                    # noqa: E402
+from astrapy.info import (                                                    # noqa: E402
+    CollectionDefinition,
+    CollectionVectorOptions,
+    CollectionVectorServiceOptions,
+    VectorServiceOptions,
+)
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Configuration — keep CHUNKS_COLLECTION and EMBEDDING_DIMENSION in sync with
-# store/astra_chunk_store.py (written next).
-# ─────────────────────────────────────────────────────────────────────────────
+# ── configuration ─────────────────────────────────────────────────────────────
 
-# Name of the collection that will hold RAG chunks.
 CHUNKS_COLLECTION = "chunks"
 
-# Must match the output size of your WatsonX embedding model.
-#   ibm/slate-125m-english-rtrvr        →  768
-#   ibm/slate-30m-english-rtrvr-v2      → 1536  ← your current choice
-# If you change model later, delete and recreate the collection.
-EMBEDDING_DIMENSION = 1536
+# NVIDIA nv-embedqa-e5-v5 produces 1024-dim vectors.
+EMBEDDING_DIMENSION = 1024
 
-# COSINE is correct for normalised text embeddings.
-# The AstraDB template uses DOT_PRODUCT — that only works correctly when
-# every vector is unit-length (explicitly L2-normalised before insert).
-# COSINE handles non-unit vectors safely and is the standard choice for RAG.
+# COSINE is the standard metric for normalised text embeddings.
 VECTOR_METRIC = VectorMetric.COSINE
+
+# AstraDB vectorize provider and model for auto-embedding.
+# AstraDB calls NVIDIA internally — no API key required on our side.
+VECTORIZE_PROVIDER = "nvidia"
+VECTORIZE_MODEL    = "nvidia/nv-embedqa-e5-v5"
 
 
 def main() -> None:
@@ -91,22 +97,19 @@ def main() -> None:
     log.info("  endpoint : %s", endpoint)
     log.info("  keyspace : %s", keyspace)
 
-    # ── connect via astrapy Data API ──────────────────────────────────────────
     client   = DataAPIClient(token)
     database = client.get_database(endpoint, keyspace=keyspace)
     log.info("Connected. Database: %s", database.info().name)
 
     # ── create 'chunks' collection ────────────────────────────────────────────
-    # NO service= / VectorServiceOptions block.
-    # We call WatsonX ourselves to produce float vectors, then push them here.
     existing = [c.name for c in database.list_collections()]
     if CHUNKS_COLLECTION in existing:
         log.info("Collection '%s' already exists — skipping creation.", CHUNKS_COLLECTION)
         collection = database.get_collection(CHUNKS_COLLECTION)
     else:
         log.info(
-            "Creating collection '%s'  (dimension=%d  metric=COSINE) ...",
-            CHUNKS_COLLECTION, EMBEDDING_DIMENSION,
+            "Creating collection '%s'  (dimension=%d  metric=COSINE  vectorize=%s) ...",
+            CHUNKS_COLLECTION, EMBEDDING_DIMENSION, VECTORIZE_MODEL,
         )
         collection = database.create_collection(
             CHUNKS_COLLECTION,
@@ -114,7 +117,10 @@ def main() -> None:
                 vector=CollectionVectorOptions(
                     dimension=EMBEDDING_DIMENSION,
                     metric=VECTOR_METRIC,
-                    # ← No 'service' key — WatsonX generates embeddings; we push them.
+                    service=CollectionVectorServiceOptions(
+                        provider=VECTORIZE_PROVIDER,
+                        model_name=VECTORIZE_MODEL,
+                    ),
                 ),
             ),
         )
@@ -136,9 +142,8 @@ def main() -> None:
     log.info("Setup complete. 'chunks' collection is ready.")
     log.info("")
     log.info("Next steps:")
-    log.info("  1. Confirm WATSONX_EMBED_MODEL in .env")
-    log.info("     → ibm/slate-30m-english-rtrvr-v2  (1536-dim)")
-    log.info("  2. Run: .venv/bin/python3 scripts/run_ocr.py")
+    log.info("  1. Run: .venv/bin/python3 scripts/run_ocr.py")
+    log.info("  2. Run: .venv/bin/python3 scripts/run_chunk.py")
 
 
 if __name__ == "__main__":
