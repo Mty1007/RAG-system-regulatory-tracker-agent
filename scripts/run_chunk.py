@@ -96,7 +96,6 @@ from ibm_botocore.client import Config                    # noqa: E402
 from ibm_botocore.exceptions import ClientError          # noqa: E402
 
 from core.chunker import chunk_markdown                   # noqa: E402
-from core.embedder import embed_texts                     # noqa: E402
 from store.astra_chunk_store import AstraChunkStore       # noqa: E402
 from store.astra_layout_store import AstraLayoutStore     # noqa: E402
 
@@ -290,16 +289,14 @@ def main() -> None:
                 for c in chunks:
                     c["source"] = source
 
-                # ── 4. embed ──────────────────────────────────────────────────
-                texts   = [c["text"] for c in chunks]
-                vectors = embed_texts(texts)
-
-                # ── 5a. write to AstraDB ──────────────────────────────────────
+                # ── 4. write to AstraDB ───────────────────────────────────────
+                # Embedding is handled automatically by AstraDB via $vectorize
+                # (NVIDIA nvidia/nv-embedqa-e5-v5) — no WatsonX embed call needed.
                 if chunk_store is not None:
                     # Delete first so stale chunk IDs (from a previous different
                     # chunking run) don't accumulate alongside the new ones.
                     chunk_store.delete_chunks(doc_id)
-                    chunk_store.upsert_chunks(chunks, vectors)
+                    chunk_store.upsert_chunks(chunks)
 
                 # ── 5b. write JSONL backup to COS ─────────────────────────────
                 write_jsonl_backup(doc_id, chunks)
@@ -316,7 +313,7 @@ def main() -> None:
                 log.error("  FAIL %s: %s", doc_id, exc)
                 failed += 1
 
-            time.sleep(0.2)  # polite delay between WatsonX embed calls
+            time.sleep(0.1)  # polite delay between AstraDB upsert calls
     finally:
         if layout_store is not None:
             layout_store.close()

@@ -12,15 +12,14 @@ terms) that keyword search handles well, *and* conceptual questions
 search handles well.  AstraDB's built-in NVIDIA reranker
 (nvidia/llama-3.2-nv-rerankqa-1b-v2) then reranks the merged results.
 
+Embeddings are generated automatically by AstraDB via ``$vectorize`` —
+no WatsonX embedding call is needed for retrieval either.
+
 Required environment variables
 -------------------------------
 ASTRA_DB_APPLICATION_TOKEN
 ASTRA_DB_API_ENDPOINT
 ASTRA_DB_KEYSPACE            (optional, default "default_keyspace")
-WATSONX_API_KEY
-WATSONX_PROJECT_ID
-WATSONX_URL
-WATSONX_EMBED_MODEL
 """
 
 from __future__ import annotations
@@ -30,8 +29,6 @@ import os
 from typing import Any, Optional
 
 from astrapy import DataAPIClient
-
-from core.embedder import embed_texts
 
 logger = logging.getLogger(__name__)
 
@@ -87,21 +84,19 @@ def retrieve(
     if source_filter:
         filter_doc["source"] = source_filter.upper()
 
-    # ── embed query for semantic (ANN vector) leg ─────────────────────────────
-    query_vector = embed_texts([query])[0]
-
     # ── hybrid retrieval + reranking in one call ──────────────────────────────
-    # $hybrid sort combines $vector (ANN semantic) + $lexical (BM25 keyword).
+    # $vectorize: AstraDB auto-embeds the query text using the collection's
+    # configured NVIDIA model — no WatsonX embed call needed.
+    # $hybrid sort combines $vectorize (ANN semantic) + $lexical (BM25 keyword).
     # rerank_on="text" tells the NVIDIA reranker which field to score against.
-    # rerank_query is the natural-language query used for reranking.
     cursor = collection.find_and_rerank(
         filter_doc,
-        sort={"$hybrid": {"$vector": query_vector, "$lexical": query}},
+        sort={"$hybrid": {"$vectorize": query, "$lexical": query}},
         rerank_query=query,
         rerank_on="text",
         limit=top_k,
         hybrid_limits=top_n,
-        projection={"$vector": 0},
+        projection={"$vectorize": 0},
         include_scores=True,
     )
 

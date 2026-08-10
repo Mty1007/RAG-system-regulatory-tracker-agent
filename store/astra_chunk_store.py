@@ -1,20 +1,25 @@
 """AstraDB store for RAG chunks.
 
-Each chunk produced by ``core/chunker.py`` + embedded by ``core/embedder.py``
-is stored as a document in the AstraDB ``chunks`` collection (created by
-``scripts/setup_astra_collections.py``).
+Each chunk produced by ``core/chunker.py`` is stored as a document in the
+AstraDB ``chunks`` collection (created by ``scripts/setup_astra_collections.py``).
+
+Embeddings are generated automatically by AstraDB using the NVIDIA
+``nvidia/nv-embedqa-e5-v5`` model configured on the collection (vectorize).
+No WatsonX embedding call is needed for storage — just pass the text in the
+``$vectorize`` field and AstraDB handles the rest.
 
 Document shape in the collection
 ---------------------------------
 {
     "_id":             "<doc_id>__c<n>",   # same as chunk_id
-    "$vector":         [float, …],         # 1536-dim WatsonX embedding
-    "doc_id":          str,                # links to COS + layout_elements
+    "$vectorize":      str,                # text → AstraDB auto-embeds (NVIDIA)
+    "$lexical":        str,                # same text for BM25 keyword search
+    "doc_id":          str,                # links to COS
     "source":          str,                # "SFC" | "PCPD"
     "chunk_index":     int,
     "section_heading": str,
     "page_start":      int,
-    "text":            str,                # raw text (for BM25 search)
+    "text":            str,                # raw text copy
     "token_count":     int,
 }
 
@@ -22,7 +27,7 @@ Required environment variables
 -------------------------------
 ASTRA_DB_APPLICATION_TOKEN   AstraCS:… token
 ASTRA_DB_API_ENDPOINT        https://<db-id>-<region>.apps.astra.datastax.com
-ASTRA_DB_KEYSPACE            e.g. "regulatory"
+ASTRA_DB_KEYSPACE            e.g. "default_keyspace"
 """
 
 from __future__ import annotations
@@ -65,9 +70,14 @@ class AstraChunkStore:
     def upsert_chunks(
         self,
         chunks: list[dict[str, Any]],
-        vectors: list[list[float]],
+        vectors: Optional[list[list[float]]] = None,
     ) -> None:
-        """Insert or overwrite a batch of chunks with their embedding vectors.
+        """Insert or overwrite a batch of chunks.
+
+        Embeddings are generated automatically by AstraDB via the
+        ``$vectorize`` field (NVIDIA nvidia/nv-embedqa-e5-v5 model).
+        The ``vectors`` parameter is accepted for backwards compatibility
+        but ignored — AstraDB handles embedding internally.
 
         Parameters
         ----------
@@ -77,21 +87,15 @@ class AstraChunkStore:
             ``source``, ``chunk_index``, ``section_heading``, ``text``,
             ``token_count``.  ``page_start`` is optional (defaults to 0).
         vectors:
-            Parallel list of float vectors (one per chunk, same order).
+            Ignored. Kept for backwards compatibility only.
         """
-        if len(chunks) != len(vectors):
-            raise ValueError(
-                f"chunks/vectors length mismatch: {len(chunks)} vs {len(vectors)}"
-            )
-
-        for chunk, vector in zip(chunks, vectors):
+        for chunk in chunks:
             doc = {
                 "_id":             chunk["chunk_id"],
-                "$vector":         vector,
-                # $lexical is AstraDB's BM25 index field.  Populate it with the
-                # same text as the chunk so keyword search works for both
-                # English and Chinese queries (the collection uses the standard
-                # analyzer which tokenises CJK characters individually).
+                # $vectorize: AstraDB auto-embeds this text using the
+                # collection's configured NVIDIA embedding model.
+                "$vectorize":      chunk["text"],
+                # $lexical: same text for BM25 keyword search (EN + CJK).
                 "$lexical":        chunk["text"],
                 "doc_id":          chunk["doc_id"],
                 "source":          chunk.get("source", ""),
