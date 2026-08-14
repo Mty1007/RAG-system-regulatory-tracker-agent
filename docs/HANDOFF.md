@@ -91,14 +91,6 @@ report `SKIP (N chunks, AstraDB in sync)`.
 
 ---
 
-## ✅ Resolved — IA HTTP 403
-
-`core/ia_client.py` uses `patchright` (headed Chrome) to bypass Cloudflare.
-Persistent profile at `~/.ia-chrome-profile` stores the clearance cookie.
-Do not run `IAClient.discover_documents()` in CI — headed browser only.
-
----
-
 ## ✅ Resolved — watsonx Docling OCR
 
 `run_ocr.py` uses `TextExtractionsV2` with `WATSONX_COS_CONNECTION_ASSET_ID`.
@@ -107,71 +99,30 @@ empty but the code is ready for local Docling if needed later.
 
 ---
 
-## 🔧 Next Step — populate $lexical (FORCE_RECHUNK)
+## ✅ System Status
 
-All 71 docs were chunked **before** the `$lexical` fix was in place, so BM25
-search returns 0 hits. Run this once to re-write every chunk with `$lexical`:
+- Chat API running on port 8001, answering SFC + PCPD questions correctly
+- Hybrid retrieval working (ANN vector confirmed; BM25 English leg optional improvement via `FORCE_RECHUNK=1`)
+- RAG quality evaluation pipeline in place — run `python scripts/eval_quality.py` any time
 
-```bash
-cd /Users/matsunyan/regulatory-tracker-agent
-set -a && source .env && set +a
-FORCE_RECHUNK=1 .venv/bin/python scripts/run_chunk.py 2>&1 | grep -E "CHUNK|OK |FAIL|TOTAL"
-```
-
-Expected: `TOTAL  processed=71  skipped=0  failed=0`
-
-Then verify hybrid search is live:
-
-```bash
-.venv/bin/python3 - << 'EOF'
-import os
-from astrapy import DataAPIClient
-token    = os.environ["ASTRA_DB_APPLICATION_TOKEN"]
-endpoint = os.environ["ASTRA_DB_API_ENDPOINT"].rstrip("/")
-keyspace = os.environ.get("ASTRA_DB_KEYSPACE", "default_keyspace")
-col = DataAPIClient(token).get_database(endpoint, keyspace=keyspace).get_collection("chunks")
-
-print("=== BM25 English: 'client asset segregation' ===")
-hits = list(col.find({}, sort={"$lexical": "client asset segregation"}, limit=3, projection={"text": 1, "_id": 1}))
-for h in hits: print(f"  {h['_id'][:35]}  {h['text'][:80]!r}")
-print(f"  -> {len(hits)} hits")
-
-print("\n=== BM25 Chinese: '個人資料' ===")
-hits = list(col.find({}, sort={"$lexical": "個人資料"}, limit=3, projection={"text": 1, "_id": 1}))
-for h in hits: print(f"  {h['_id'][:35]}  {h['text'][:80]!r}")
-print(f"  -> {len(hits)} hits")
-EOF
-```
-
----
-
-## 🔧 Next Step — Test chat API
-
-Start the server:
+## Start the server
 
 ```bash
 cd /Users/matsunyan/regulatory-tracker-agent
 set -a && source .env && set +a
-.venv/bin/uvicorn api.main:app --host 127.0.0.1 --port 8000 --reload
+.venv/bin/uvicorn api.main:app --host 127.0.0.1 --port 8001 --reload
 ```
 
-Then query it:
+## Run quality evaluation
 
 ```bash
-curl -X POST http://127.0.0.1:8000/chat/ \
-  -H "Content-Type: application/json" \
-  -d '{"question": "What are SFC requirements for client asset segregation?", "source_filter": "SFC"}'
+.venv/bin/python scripts/eval_quality.py
 ```
 
-Expected response shape:
+## Seed more eval questions
 
-```json
-{
-  "answer": "...",
-  "citations": [{"doc_id": "sfc-...", "source": "SFC", "section_heading": "...", "page_start": 0}],
-  "model_used": "ibm/granite-13b-chat-v2",
-  "chunk_count": 5
-}
+```bash
+.venv/bin/python scripts/seed_eval_log.py
 ```
 
 ---
@@ -189,12 +140,14 @@ set -a && source .env && set +a
 |------|---------|
 | `scripts/run_ocr.py` | OCR pipeline — TextExtractionsV2 (WatsonX Docling) |
 | `scripts/run_chunk.py` | Chunk + embed pipeline |
+| `scripts/eval_quality.py` | RAG quality scorer (context relevance, faithfulness, answer relevance, answer similarity) |
+| `scripts/seed_eval_log.py` | Send batch questions to API to populate eval log |
+| `scripts/add_ground_truths.py` | Add expert reference answers to eval log for answer similarity scoring |
+| `core/rag_eval.py` | Auto-logs every /chat request to rag_eval_log.csv |
 | `store/astra_chunk_store.py` | AstraDB chunks collection ($vector + $lexical) |
-| `store/astra_layout_store.py` | AstraDB layout_elements table (bbox — empty until local Docling) |
-| `core/retriever.py` | Hybrid ANN + BM25 ($lexical) search with RRF merge |
+| `core/retriever.py` | Hybrid ANN + BM25 search via AstraDB find_and_rerank() |
 | `core/chunker.py` | Markdown-aware heading-split + sliding-window chunker |
-| `core/embedder.py` | WatsonX granite-embedding-278m-multilingual (768-dim) |
-| `core/reranker.py` | Cross-encoder reranker (local or WatsonX) |
-| `core/generator.py` | IBM Granite answer generation |
-| `api/routers/chat.py` | POST /chat/ — retrieve → rerank → generate |
+| `core/reranker.py` | Reranker — AstraDB NVIDIA (default), WatsonX, or local |
+| `core/generator.py` | Mistral via WatsonX answer generation |
+| `api/routers/chat.py` | POST /chat/ — retrieve → rerank → generate → log |
 | `.env.example` | All required environment variables |

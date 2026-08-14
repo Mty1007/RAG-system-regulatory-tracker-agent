@@ -2,9 +2,6 @@
 """Audit COS bucket: list pdfs/*.pdf, compare against what the PCPD and SFC
 clients would discover today, and print a full gap report.
 
-Note: IA (ia_client) is excluded — it requires a headed Chrome session and
-is run manually, not as part of this audit.
-
 Metadata records (docs/*.json) are no longer expected in COS — they were
 removed in favour of the PDF-only store.  Bbox/layout data lives in AstraDB.
 
