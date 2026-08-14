@@ -68,7 +68,6 @@ from astrapy.constants import VectorMetric                                    # 
 from astrapy.info import (                                                    # noqa: E402
     CollectionDefinition,
     CollectionVectorOptions,
-    CollectionVectorServiceOptions,
     VectorServiceOptions,
 )
 
@@ -117,7 +116,7 @@ def main() -> None:
                 vector=CollectionVectorOptions(
                     dimension=EMBEDDING_DIMENSION,
                     metric=VECTOR_METRIC,
-                    service=CollectionVectorServiceOptions(
+                    service=VectorServiceOptions(
                         provider=VECTORIZE_PROVIDER,
                         model_name=VECTORIZE_MODEL,
                     ),

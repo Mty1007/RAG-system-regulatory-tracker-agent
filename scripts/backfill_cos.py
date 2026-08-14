@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""One-shot backfill: discover all PR 1-3 documents and push them to IBM COS.
+"""One-shot backfill: discover all PCPD + SFC documents and push them to IBM COS.
 
 For every document this script will:
   1. Download the PDF from download_url and upload it to COS under
@@ -21,9 +21,6 @@ Set the five required env vars and run:
     # export COS_PDF_BUCKET="regulatory-tracker-pdfs"
 
     .venv/bin/python scripts/backfill_cos.py
-
-    # IA: choose which years to backfill (defaults to 2025-2026)
-    IA_START_YEAR=2020 IA_END_YEAR=2026 .venv/bin/python scripts/backfill_cos.py
 """
 
 from __future__ import annotations
@@ -59,7 +56,6 @@ if missing:
 # Add repo root to path when running as a script
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from core.ia_client import IAClient          # noqa: E402
 from core.pcpd_client import PCPDClient      # noqa: E402
 from core.sfc_client import SFCClient        # noqa: E402
 from store.cos_document_store import COSDocumentStore  # noqa: E402
@@ -129,23 +125,12 @@ def _backfill_source(
 def main() -> None:
     store = COSDocumentStore()
 
-    ia_start = int(os.environ.get("IA_START_YEAR", 2025))
-    ia_end   = int(os.environ.get("IA_END_YEAR",   2026))
-
     sources: list[tuple[str, list[dict[str, Any]]]] = []
 
     log.info("=== PR 1 — PCPD (curated, 4 docs) ===")
     sources.append(("PCPD", PCPDClient().discover_documents()))
 
-    log.info("=== PR 2 — IA (years %d–%d) ===", ia_start, ia_end)
-    try:
-        sources.append(("IA", IAClient().discover_documents(
-            start_year=ia_start, end_year=ia_end
-        )))
-    except (ValueError, RuntimeError) as exc:
-        log.warning("Skipping IA — discovery failed: %s", exc)
-
-    log.info("=== PR 3 — SFC (Codes + Guidelines) ===")
+    log.info("=== PR 2 — SFC (Codes + Guidelines) ===")
     sources.append(("SFC", SFCClient().discover_documents()))
 
     totals: dict[str, int] = dict(pdf_new=0, pdf_skip=0, pdf_fail=0)

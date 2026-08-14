@@ -40,3 +40,21 @@ CLAUDE.md
 # Logs
 *.log
 logs/
+
+# Virtual environment
+.venv/
+
+# Sensitive env backups
+.env.save
+.env.*
+!.env.example
+
+# Bob internal
+.bob/
+
+# Chunk run logs
+chunk_run*.log
+
+# Presentations and Office temp files
+*.pptx
+~$*

@@ -1,17 +1,20 @@
 #!/usr/bin/env python
-"""OCR Pipeline: read PDFs from COS, extract text + layout via Docling (local),
-write readable output back to COS and bbox/layout elements to AstraDB.
+"""OCR Pipeline: read PDFs from COS, extract text via watsonx Docling (TextExtractionsV2),
+write Markdown output back to COS.
 
 For every pdfs/<doc_id>.pdf in COS this script will:
-  1. Download the PDF bytes from COS.
-  2. Convert with the local Docling Python package (no HTTP API needed).
-  3. Write the transformed markdown to COS under transformed/<doc_id>.md.
-  4. Store all bbox/layout elements (coordinates, page, type, text) as structured
-     rows in AstraDB — keyed by (doc_id, element_id).
+  1. Confirm the PDF exists in the COS bucket registered as a watsonx connection asset.
+  2. Submit a TextExtractionsV2 job (input=pdfs/<doc_id>.pdf, output=transformed/<doc_id>/).
+  3. Poll until the job reaches a terminal state.
+  4. The watsonx service writes the Markdown result directly to COS under
+     transformed/<doc_id>/<doc_id>.md — the script renames it to the canonical
+     transformed/<doc_id>.md key.
 
 The original PDF remains unchanged in COS under pdfs/<doc_id>.pdf.
-Bbox/layout data is NOT written as a JSON sidecar in COS; it belongs in AstraDB
-as structured columns that downstream queries can filter and index efficiently.
+Layout/bbox data from the watsonx extraction is NOT stored locally — the
+SKIP_LAYOUT_STORE flag is retained for forward-compatibility but layout writing
+is not implemented in this version (watsonx does not expose raw bbox elements
+via the TextExtractionsV2 API surface).
 All steps are idempotent — already-processed docs are skipped.
 
 Usage
@@ -22,9 +25,9 @@ Make sure .env is populated, then run:
 
 Optional env overrides
 ----------------------
-OCR_SOURCE        only process one source prefix: PCPD | IA | SFC
+OCR_SOURCE        only process one source prefix: PCPD | SFC
                   e.g.  OCR_SOURCE=PCPD .venv/bin/python scripts/run_ocr.py
-SKIP_LAYOUT_STORE set to "1" to skip writing to AstraDB (dry-run mode)
+SKIP_LAYOUT_STORE retained for compatibility; bbox data is not written in this version
 """
 
 from __future__ import annotations
@@ -32,7 +35,6 @@ from __future__ import annotations
 import logging
 import os
 import sys
-import tempfile
 import time
 from pathlib import Path
 
@@ -56,7 +58,8 @@ log = logging.getLogger("run_ocr")
 # ── env-var check ─────────────────────────────────────────────────────────────
 REQUIRED = [
     "COS_API_KEY", "COS_INSTANCE_CRN", "COS_ENDPOINT", "COS_BUCKET",
-    "ASTRA_DB_APPLICATION_TOKEN", "ASTRA_DB_API_ENDPOINT",
+    "WATSONX_API_KEY", "WATSONX_URL", "WATSONX_PROJECT_ID",
+    "WATSONX_COS_CONNECTION_ASSET_ID",
 ]
 missing = [v for v in REQUIRED if not os.environ.get(v)]
 if missing:
@@ -70,15 +73,25 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import ibm_boto3                                       # noqa: E402
 from ibm_botocore.client import Config                 # noqa: E402
 from ibm_botocore.exceptions import ClientError        # noqa: E402
-from store.astra_layout_store import AstraLayoutStore  # noqa: E402
 
-try:
-    from docling.document_converter import DocumentConverter  # noqa: E402
-except ImportError:
-    log.error("docling is not installed. Run: pip install docling")
-    sys.exit(1)
+from ibm_watsonx_ai import Credentials                 # noqa: E402
+from ibm_watsonx_ai.foundation_models.extractions import (  # noqa: E402
+    TextExtractionsV2,
+    TextExtractionsV2ResultFormats,
+)
+from ibm_watsonx_ai.helpers import DataConnection, S3Location  # noqa: E402
 
-# ── COS client ────────────────────────────────────────────────────────────────
+# ── constants ─────────────────────────────────────────────────────────────────
+BUCKET                   = os.environ["COS_BUCKET"]
+WATSONX_PROJECT_ID       = os.environ["WATSONX_PROJECT_ID"]
+CONNECTION_ASSET_ID      = os.environ["WATSONX_COS_CONNECTION_ASSET_ID"]
+
+# How long (seconds) to wait between job-status polls
+_POLL_INTERVAL = 5
+# Maximum total seconds to wait for a single job before giving up
+_JOB_TIMEOUT   = 600
+
+# ── COS client (for skip checks and result key rename) ────────────────────────
 cos = ibm_boto3.client(
     "s3",
     ibm_api_key_id=os.environ["COS_API_KEY"],
@@ -86,10 +99,15 @@ cos = ibm_boto3.client(
     config=Config(signature_version="oauth"),
     endpoint_url=os.environ["COS_ENDPOINT"],
 )
-BUCKET = os.environ["COS_BUCKET"]
 
-# ── Docling converter (initialised once, reused for all docs) ─────────────────
-_converter = DocumentConverter()
+# ── watsonx TextExtractionsV2 client ─────────────────────────────────────────
+_extraction = TextExtractionsV2(
+    credentials=Credentials(
+        api_key=os.environ["WATSONX_API_KEY"],
+        url=os.environ["WATSONX_URL"],
+    ),
+    project_id=WATSONX_PROJECT_ID,
+)
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -118,81 +136,102 @@ def transformed_already_done(doc_id: str) -> bool:
         return False
 
 
-def download_pdf(key: str) -> bytes:
-    """Download PDF bytes from COS."""
-    return cos.get_object(Bucket=BUCKET, Key=key)["Body"].read()
+def _poll_job(job_id: str) -> str:
+    """Poll until the job reaches 'completed' or 'failed'. Returns terminal status string."""
+    elapsed = 0
+    while elapsed < _JOB_TIMEOUT:
+        details = _extraction.get_job_details(job_id)
+        status = (
+            details.get("entity", {})
+            .get("results", {})
+            .get("status", "unknown")
+        )
+        if status in ("completed", "failed", "canceled"):
+            return status
+        log.debug("  job %s status=%s (%.0fs elapsed)", job_id, status, elapsed)
+        time.sleep(_POLL_INTERVAL)
+        elapsed += _POLL_INTERVAL
+    return "timeout"
 
 
-def convert_pdf(pdf_bytes: bytes, filename: str) -> tuple[str, list[dict]]:
-    """Convert PDF bytes using the local Docling package.
+def _watsonx_output_key(doc_id: str) -> str:
+    """The key watsonx writes Markdown results to inside the output directory."""
+    # watsonx writes: transformed/<doc_id>/assembly.md
+    return f"transformed/{doc_id}/assembly.md"
 
-    Writes bytes to a temp file (Docling requires a file path), converts,
-    then cleans up.
+
+def _promote_result(doc_id: str) -> str:
+    """Copy watsonx output to the canonical key and delete the intermediate one.
+
+    watsonx writes to:  transformed/<doc_id>/<doc_id>.md
+    Canonical target:   transformed/<doc_id>.md
+    """
+    src_key = _watsonx_output_key(doc_id)
+    dst_key = f"transformed/{doc_id}.md"
+
+    # Read the result written by watsonx
+    body = cos.get_object(Bucket=BUCKET, Key=src_key)["Body"].read()
+
+    # Write to canonical key
+    cos.put_object(
+        Bucket=BUCKET,
+        Key=dst_key,
+        Body=body,
+        ContentType="text/markdown; charset=utf-8",
+    )
+
+    # Clean up the intermediate directory key
+    cos.delete_object(Bucket=BUCKET, Key=src_key)
+
+    return body.decode("utf-8", errors="replace")
+
+
+def run_extraction(doc_id: str) -> str:
+    """Submit a TextExtractionsV2 job for *doc_id* and return the Markdown content.
+
+    Parameters
+    ----------
+    doc_id : str
+        Bare doc ID (no prefix/suffix), e.g. ``sfc-abc123``.
 
     Returns
     -------
-    content   — Markdown string of the full document
-    elements  — flat list of layout element dicts, each with:
-                element_id, page, element_type, bbox [x0,y0,x1,y1], text
+    str
+        The extracted Markdown text.
+
+    Raises
+    ------
+    RuntimeError
+        If the job fails, times out, or produces empty output.
     """
-    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
-        tmp.write(pdf_bytes)
-        tmp_path = tmp.name
-
-    try:
-        result = _converter.convert(tmp_path)
-    finally:
-        Path(tmp_path).unlink(missing_ok=True)
-
-    doc = result.document
-
-    # ── extract markdown ──────────────────────────────────────────────────────
-    content = doc.export_to_markdown()
-    if not content:
-        raise RuntimeError(f"Docling produced empty markdown for {filename}")
-
-    # ── extract layout elements ───────────────────────────────────────────────
-    elements: list[dict] = []
-    for idx, item in enumerate(doc.texts):
-        # Each item has .text, .prov (provenance list with page + bbox info)
-        text = getattr(item, "text", "") or ""
-        prov_list = getattr(item, "prov", []) or []
-        prov = prov_list[0] if prov_list else None
-
-        page = 0
-        bbox = [0.0, 0.0, 0.0, 0.0]
-        if prov is not None:
-            page = int(getattr(prov, "page_no", 0))
-            raw_bbox = getattr(prov, "bbox", None)
-            if raw_bbox is not None:
-                bbox = [
-                    float(getattr(raw_bbox, "l", 0.0)),
-                    float(getattr(raw_bbox, "t", 0.0)),
-                    float(getattr(raw_bbox, "r", 0.0)),
-                    float(getattr(raw_bbox, "b", 0.0)),
-                ]
-
-        element_type = type(item).__name__
-
-        elements.append({
-            "element_id": str(idx),
-            "page":         page,
-            "element_type": element_type,
-            "bbox":         bbox,
-            "text":         text,
-        })
-
-    return content, elements
-
-
-def write_transformed_content(doc_id: str, content: str) -> None:
-    """Write Markdown output to COS as transformed/<doc_id>.md."""
-    cos.put_object(
-        Bucket=BUCKET,
-        Key=f"transformed/{doc_id}.md",
-        Body=content.encode("utf-8"),
-        ContentType="text/markdown; charset=utf-8",
+    input_ref = DataConnection(
+        connection_asset_id=CONNECTION_ASSET_ID,
+        location=S3Location(bucket=BUCKET, path=f"pdfs/{doc_id}.pdf"),
     )
+    # Output path must end with / — watsonx writes files inside this directory.
+    output_ref = DataConnection(
+        connection_asset_id=CONNECTION_ASSET_ID,
+        location=S3Location(bucket=BUCKET, path=f"transformed/{doc_id}/"),
+    )
+
+    job_details = _extraction.run_job(
+        document_reference=input_ref,
+        results_reference=output_ref,
+        result_formats=[TextExtractionsV2ResultFormats.MARKDOWN],
+    )
+    job_id = TextExtractionsV2.get_job_id(job_details)
+    log.info("  submitted job %s", job_id)
+
+    status = _poll_job(job_id)
+
+    if status != "completed":
+        raise RuntimeError(f"TextExtractionsV2 job {job_id} ended with status={status!r}")
+
+    content = _promote_result(doc_id)
+    if not content.strip():
+        raise RuntimeError(f"TextExtractionsV2 produced empty Markdown for {doc_id}")
+
+    return content
 
 
 # ── main ─────────────────────────────────────────────────────────────────────
@@ -203,48 +242,32 @@ def main() -> None:
 
     if source_filter:
         log.info("Source filter: %s", source_filter)
-
-    layout_store: AstraLayoutStore | None = None
-    if not skip_layout:
-        layout_store = AstraLayoutStore()
-        log.info("AstraDB layout store connected")
-    else:
-        log.info("SKIP_LAYOUT_STORE=1 — bbox/layout will NOT be written to AstraDB")
+    if skip_layout:
+        log.info("SKIP_LAYOUT_STORE=1 — bbox/layout data will not be written")
 
     pdf_keys = list_pdf_keys(source_filter)
     log.info("Found %d PDFs to process", len(pdf_keys))
 
     done = skipped = failed = 0
 
-    try:
-        for key in pdf_keys:
-            doc_id = key.removeprefix("pdfs/").removesuffix(".pdf")
+    for key in pdf_keys:
+        doc_id = key.removeprefix("pdfs/").removesuffix(".pdf")
 
-            if transformed_already_done(doc_id):
-                log.info("SKIP  %s (already processed)", doc_id)
-                skipped += 1
-                continue
+        if transformed_already_done(doc_id):
+            log.info("SKIP  %s (already processed)", doc_id)
+            skipped += 1
+            continue
 
-            try:
-                log.info("OCR   %s ...", doc_id)
-                pdf_bytes = download_pdf(key)
-                content, elements = convert_pdf(pdf_bytes, filename=f"{doc_id}.pdf")
-                write_transformed_content(doc_id, content)
-                if layout_store is not None:
-                    layout_store.insert_elements(doc_id, elements)
-                log.info(
-                    "  OK  %s  (%d chars, %d layout elements)",
-                    doc_id, len(content), len(elements),
-                )
-                done += 1
-            except Exception as exc:
-                log.error("  FAIL %s: %s", doc_id, exc)
-                failed += 1
+        try:
+            log.info("OCR   %s ...", doc_id)
+            content = run_extraction(doc_id)
+            log.info("  OK  %s  (%d chars)", doc_id, len(content))
+            done += 1
+        except Exception as exc:
+            log.error("  FAIL %s: %s", doc_id, exc)
+            failed += 1
 
-            time.sleep(0.1)  # small pause between docs
-    finally:
-        if layout_store is not None:
-            layout_store.close()
+        time.sleep(0.1)  # small pause between submissions
 
     log.info("=" * 60)
     log.info("TOTAL  processed=%d  skipped=%d  failed=%d", done, skipped, failed)

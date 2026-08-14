@@ -15,18 +15,32 @@ search handles well.  AstraDB's built-in NVIDIA reranker
 Embeddings are generated automatically by AstraDB via ``$vectorize`` —
 no WatsonX embedding call is needed for retrieval either.
 
+Cross-lingual retrieval
+-----------------------
+When a Chinese query is detected, an English translation is produced via
+WatsonX and used for a second retrieval pass.  Results from both passes are
+merged (deduplicated by chunk_id) before reranking so that English-only
+regulatory documents remain reachable from Chinese queries.
+
 Required environment variables
 -------------------------------
 ASTRA_DB_APPLICATION_TOKEN
 ASTRA_DB_API_ENDPOINT
 ASTRA_DB_KEYSPACE            (optional, default "default_keyspace")
+WATSONX_API_KEY              (for Chinese query translation)
+WATSONX_PROJECT_ID
+WATSONX_URL
+WATSONX_LLM_MODEL
 """
 
 from __future__ import annotations
 
 import logging
 import os
+import re
 from typing import Any, Optional
+
+import requests
 
 from astrapy import DataAPIClient
 
@@ -34,6 +48,65 @@ logger = logging.getLogger(__name__)
 
 CHUNKS_COLLECTION = "chunks"
 
+# Matches any CJK Unified Ideograph
+_CJK_RE = re.compile(r"[\u4e00-\u9fff]")
+
+
+def _is_chinese(text: str) -> bool:
+    """Return True if *text* contains a meaningful amount of Chinese characters."""
+    return len(_CJK_RE.findall(text)) >= 3
+
+
+def _translate_to_english(text: str) -> str:
+    """Translate *text* to English using WatsonX LLM.
+
+    Returns the original text unchanged on any error so retrieval degrades
+    gracefully rather than raising.
+    """
+    try:
+        from core.embedder import _get_iam_token  # reuse IAM token cache
+
+        api_key    = os.environ["WATSONX_API_KEY"]
+        project_id = os.environ["WATSONX_PROJECT_ID"]
+        base_url   = os.environ["WATSONX_URL"].rstrip("/")
+        model_id   = os.environ.get("WATSONX_LLM_MODEL", "mistralai/mistral-medium-2505")
+        token      = _get_iam_token(api_key)
+
+        prompt = (
+            "Translate the following question into English. "
+            "Output only the English translation, nothing else.\n\n"
+            f"Question: {text}\n\nEnglish translation:"
+        )
+        resp = requests.post(
+            base_url + "/ml/v1/text/generation?version=2023-10-25",
+            json={
+                "model_id":   model_id,
+                "project_id": project_id,
+                "input":      prompt,
+                "parameters": {
+                    "decoding_method": "greedy",
+                    "max_new_tokens":  80,
+                    "stop_sequences":  ["\n"],
+                },
+            },
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type":  "application/json",
+            },
+            timeout=30,
+        )
+        if resp.status_code == 200:
+            translated = (
+                resp.json().get("results", [{}])[0]
+                .get("generated_text", "")
+                .strip()
+            )
+            if translated:
+                logger.info("translate: '%s' → '%s'", text[:60], translated[:60])
+                return translated
+    except Exception as exc:
+        logger.warning("translate failed, using original query: %s", exc)
+    return text
 
 def _get_collection():
     token    = os.environ["ASTRA_DB_APPLICATION_TOKEN"]
@@ -84,31 +157,43 @@ def retrieve(
     if source_filter:
         filter_doc["source"] = source_filter.upper()
 
-    # ── hybrid retrieval + reranking in one call ──────────────────────────────
-    # $vectorize: AstraDB auto-embeds the query text using the collection's
-    # configured NVIDIA model — no WatsonX embed call needed.
-    # $hybrid sort combines $vectorize (ANN semantic) + $lexical (BM25 keyword).
-    # rerank_on="text" tells the NVIDIA reranker which field to score against.
-    cursor = collection.find_and_rerank(
-        filter_doc,
-        sort={"$hybrid": {"$vectorize": query, "$lexical": query}},
-        rerank_query=query,
-        rerank_on="text",
-        limit=top_k,
-        hybrid_limits=top_n,
-        projection={"$vectorize": 0},
-        include_scores=True,
-    )
+    def _run_search(q: str) -> list[dict]:
+        cursor = collection.find_and_rerank(
+            filter_doc,
+            sort={"$hybrid": {"$vectorize": q, "$lexical": q}},
+            rerank_query=q,
+            rerank_on="text",
+            limit=top_k,
+            hybrid_limits=top_n,
+            projection={"$vectorize": 0},
+            include_scores=True,
+        )
+        out = []
+        for r in cursor:
+            doc = dict(r.document)
+            scores = r.scores or {}
+            doc["rerank_score"] = scores.get("$rerank", 0.0)
+            doc["rrf_score"]    = scores.get("$rrf", 0.0)
+            out.append(doc)
+        return out
 
-    results = list(cursor)
+    # ── primary search ────────────────────────────────────────────────────────
+    chunks = _run_search(query)
 
-    chunks = []
-    for r in results:
-        doc = dict(r.document)
-        scores = r.scores or {}
-        doc["rerank_score"] = scores.get("$rerank", 0.0)
-        doc["rrf_score"]    = scores.get("$rrf", 0.0)
-        chunks.append(doc)
+    # ── cross-lingual: also search with English translation for Chinese queries
+    if _is_chinese(query):
+        en_query = _translate_to_english(query)
+        if en_query != query:
+            en_chunks = _run_search(en_query)
+            # merge, deduplicating by _id — keep highest rerank_score
+            seen: dict[str, dict] = {c["_id"]: c for c in chunks}
+            for c in en_chunks:
+                cid = c["_id"]
+                if cid not in seen or c["rerank_score"] > seen[cid]["rerank_score"]:
+                    seen[cid] = c
+            # re-sort by rerank_score descending, cap at top_k
+            chunks = sorted(seen.values(), key=lambda x: x["rerank_score"], reverse=True)[:top_k]
+            logger.info("retrieve: merged %d EN chunks → %d total", len(en_chunks), len(chunks))
 
     logger.info(
         "retrieve: query=%r  source=%s  returned=%d",

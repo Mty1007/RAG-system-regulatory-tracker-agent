@@ -1,6 +1,9 @@
 #!/usr/bin/env python
-"""Audit COS bucket: list pdfs/*.pdf, compare against what the three clients
-would discover today, and print a full gap report.
+"""Audit COS bucket: list pdfs/*.pdf, compare against what the PCPD and SFC
+clients would discover today, and print a full gap report.
+
+Note: IA (ia_client) is excluded — it requires a headed Chrome session and
+is run manually, not as part of this audit.
 
 Metadata records (docs/*.json) are no longer expected in COS — they were
 removed in favour of the PDF-only store.  Bbox/layout data lives in AstraDB.
@@ -86,27 +89,20 @@ for src in sorted(by_source_pdfs):
 log.info("")
 log.info("STEP 2 — Discovering documents from live sources")
 
-from core.ia_client   import IAClient    # noqa: E402
 from core.pcpd_client import PCPDClient  # noqa: E402
 from core.sfc_client  import SFCClient   # noqa: E402
 
-ia_start = int(os.environ.get("IA_START_YEAR", 2025))
-ia_end   = int(os.environ.get("IA_END_YEAR",   2026))
-
 log.info("  PCPD ...")
 pcpd_docs = PCPDClient().discover_documents()
-log.info("  IA %d-%d ...", ia_start, ia_end)
-ia_docs = IAClient().discover_documents(start_year=ia_start, end_year=ia_end)
 log.info("  SFC ...")
 sfc_docs = SFCClient().discover_documents()
 
-all_expected = pcpd_docs + ia_docs + sfc_docs
+all_expected = pcpd_docs + sfc_docs
 expected_ids = {d["doc_id"] for d in all_expected}
 
 log.info("")
 log.info("  Expected totals from live scrape:")
 log.info("    PCPD : %d", len(pcpd_docs))
-log.info("    IA   : %d", len(ia_docs))
 log.info("    SFC  : %d", len(sfc_docs))
 log.info("    TOTAL: %d", len(all_expected))
 

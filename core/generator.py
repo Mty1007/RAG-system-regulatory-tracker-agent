@@ -29,6 +29,8 @@ _GENERATE_PATH = "/ml/v1/text/generation?version=2023-10-25"
 # Maximum tokens to reserve for the LLM response
 _MAX_NEW_TOKENS = 1024
 
+import re
+
 # System instruction prepended to every prompt
 _SYSTEM_PROMPT = """\
 You are a regulatory compliance assistant specialising in Hong Kong financial \
@@ -36,12 +38,17 @@ regulations from the SFC (Securities and Futures Commission) and PCPD \
 (Privacy Commissioner for Personal Data).
 
 Answer the user's question using ONLY the context passages provided below. \
-Be precise and cite the specific section or document where you found the answer. \
+Be precise and ground your answers strictly on the facts from the context. \
 If the context does not contain enough information to answer, say so clearly — \
 do not speculate or use outside knowledge.
 
-For each claim in your answer, add a citation in the format: \
-[Source: <source>, <section_heading>, doc: <doc_id>]
+IMPORTANT: Respond in the same language as the user's question. \
+If the question is in Chinese (Traditional or Simplified), answer in Chinese. \
+If the question is in English, answer in English.
+
+For each claim in your answer, add a bracketed reference number corresponding to \
+the context source used, e.g. [1] or [1][3]. Do not write document IDs in citations; \
+only use the number, e.g. [1].
 """
 
 
@@ -51,10 +58,10 @@ def _build_prompt(query: str, chunks: list[dict[str, Any]]) -> str:
     for i, chunk in enumerate(chunks, start=1):
         heading = chunk.get("section_heading") or "—"
         source  = chunk.get("source", "")
-        doc_id  = chunk.get("doc_id", "")
+        page    = chunk.get("page_start", 0)
         text    = chunk.get("text", "")
         context_lines.append(
-            f"[{i}] Source: {source} | Section: {heading} | doc_id: {doc_id}\n{text}"
+            f"[{i}] Source: {source} | Section: {heading} | Page: {page}\n{text}"
         )
 
     context_block = "\n\n---\n\n".join(context_lines)
@@ -126,20 +133,24 @@ def generate_answer(
     results = resp.json().get("results", [])
     answer  = results[0].get("generated_text", "").strip() if results else ""
 
-    # Only cite chunks whose doc_id actually appears in the generated answer.
-    # The system prompt instructs the LLM to embed [doc: <doc_id>] tags, so
-    # we check for that.  Fall back to all chunks if the LLM produced no tags
-    # (e.g. context was insufficient and it said "I don't know").
-    cited_ids = {c.get("doc_id", "") for c in chunks if c.get("doc_id", "") in answer}
-    if not cited_ids:
-        cited_ids = {c.get("doc_id", "") for c in chunks}
+    # Parse explicit numeric references [1], [2] inside the generated answer
+    cited_indices = set()
+    for m in re.finditer(r"\[(\d+)\]", answer):
+        idx_1based = int(m.group(1))
+        if 1 <= idx_1based <= len(chunks):
+            cited_indices.add(idx_1based - 1)
 
-    seen: set[tuple[str, str]] = set()
+    # Fallback: if the LLM produced no explicit reference tags but answered,
+    # or if we want to be safe, only cite matched chunks. If no indices matched,
+    # we default to empty citations rather than cluttering with irrelevant ones.
     citations = []
-    for c in chunks:
-        if c.get("doc_id", "") not in cited_ids:
+    seen: set[tuple[str, str, int]] = set()
+    
+    for i, c in enumerate(chunks):
+        if i not in cited_indices:
             continue
-        key = (c.get("doc_id", ""), c.get("section_heading", ""))
+        # Unique mapping on doc, section, and page
+        key = (c.get("doc_id", ""), c.get("section_heading", ""), c.get("page_start", 0))
         if key in seen:
             continue
         seen.add(key)
