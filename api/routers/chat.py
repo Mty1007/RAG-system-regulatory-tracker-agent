@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from core.retriever import retrieve
 from core.reranker import rerank
 from core.generator import generate_answer
+from core.rag_eval import log_request
 
 router = APIRouter()
 
@@ -27,7 +28,7 @@ class ChatRequest(BaseModel):
                     "Omit or pass null to search all sources.",
     )
     top_k: int = Field(
-        default=8,
+        default=10,
         ge=1,
         le=20,
         description="Number of chunks to pass to the LLM after reranking.",
@@ -68,7 +69,9 @@ def chat(req: ChatRequest) -> ChatResponse:
     # Retrieve more candidates (top_n) than the final count (top_k) so the
     # NVIDIA reranker inside find_and_rerank() has room to work, then returns
     # only top_k results — already sorted by rerank score.
-    retrieve_n = min(req.top_k * 4, 30)
+    # top_k * 5 (max 40) gives the reranker a wider candidate pool, which
+    # improves context relevance scores without changing the LLM call at all.
+    retrieve_n = min(req.top_k * 5, 40)
 
     try:
         candidates = retrieve(
@@ -99,6 +102,8 @@ def chat(req: ChatRequest) -> ChatResponse:
         raise HTTPException(
             status_code=502, detail=f"Generation error: {exc}"
         ) from exc
+
+    log_request(question=req.question, chunks=top_chunks, answer=result["answer"])
 
     return ChatResponse(
         answer=result["answer"],
