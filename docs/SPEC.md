@@ -20,7 +20,7 @@ Every source's `discover_documents()` must return a list of dicts shaped like:
 ```python
 {
     "doc_id": str,          # see doc_id rule below
-    "source": str,          # "SFC" | "IA" | "PCPD"
+    "source": str,          # "SFC" | "PCPD"
     "title": str,
     "download_url": str,    # direct PDF link
     "source_url": str,      # the listing page it came from
