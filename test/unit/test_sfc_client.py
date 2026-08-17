@@ -59,11 +59,11 @@ def test_previous_versions_excluded():
 
 
 def test_discover_documents_uses_document_type_from_spec(monkeypatch):
-    """document_type on discover_documents()'s own output must match docs/SPEC.md's
-    enum ("Code"/"Guideline", singular) — discover_documents() currently passes the
-    raw LISTING_URLS keys ("Codes"/"Guidelines", plural) straight through.
-    parse_listing_page() itself is fine (the other tests above call it with the
-    correct singular value directly); the bug is in discover_documents()'s wiring.
+    """document_type on discover_documents()'s output must match docs/SPEC.md's
+    enum: "Code" / "Guideline" (singular, not plural).
+
+    Regression guard — LISTING_URLS keys must stay singular so they flow
+    through unchanged as document_type values in every returned record.
     """
     html = FIXTURE.read_text(encoding="utf-8")
 

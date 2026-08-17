@@ -2,7 +2,7 @@
 
 Ingestion pipeline for Hong Kong financial regulator documents (SFC, IA,
 PCPD). See [`docs/SPEC.md`](docs/SPEC.md) for the task spec and
-[`CLAUDE.md`](CLAUDE.md) for coding conventions.
+`CLAUDE.md` for coding conventions (local-only, gitignored).
 
 ## Setup
 
@@ -26,7 +26,7 @@ python -m pytest test/unit/ -v
 
 ## Status
 
-All three regulator clients are implemented and passing. See [`DONE.md`](DONE.md) for the full delivery summary.
+All three regulator clients are implemented and passing. See [`docs/HANDOFF.md`](docs/HANDOFF.md) for the full delivery summary.
 
 | PR | Source | What it does | Tests | Live count |
 |---|---|---|---|---|

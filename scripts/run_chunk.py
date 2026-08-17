@@ -292,7 +292,7 @@ def main() -> None:
                     chunk_store.delete_chunks(doc_id)
                     chunk_store.upsert_chunks(chunks)
 
-                # ── 5b. write JSONL backup to COS ─────────────────────────────
+                # ── 5. write JSONL backup to COS ──────────────────────────────
                 write_jsonl_backup(doc_id, chunks)
 
                 log.info(

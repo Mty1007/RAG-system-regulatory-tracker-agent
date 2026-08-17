@@ -40,6 +40,24 @@ from __future__ import annotations
 import re
 from typing import Iterator
 
+# Patterns injected by Docling / TextExtractionsV2 that appear mid-sentence
+# and corrupt both BM25 lexical search and vector embeddings:
+#
+#   <!-- Page 63 -->              — page-break markers
+#   <!-- image -->                — image placeholders
+#   <!-- Detected language: en --> — language metadata
+#   <!-- Barcode format: … -->    — QR code metadata
+#
+# Every `---` horizontal-rule in the output is always paired with a page
+# comment (confirmed across all 71 docs — 114/114 dividers co-occur with
+# a comment within 80 chars). They are Docling page-break artefacts, not
+# meaningful Markdown section dividers.
+#
+# Stripping both restores sentence continuity so the chunker keeps precise
+# regulatory figures (e.g. "98%") intact within a single chunk.
+_HTML_COMMENT_RE = re.compile(r'<!--.*?-->', re.DOTALL)
+_PAGE_HR_RE      = re.compile(r'\n---\n')
+
 # ── tunables ─────────────────────────────────────────────────────────────────
 # Character-based limits — reliable for both English and Chinese text.
 #
@@ -142,6 +160,13 @@ def chunk_markdown(
     min_chars:
         Chunks smaller than this (in characters) are discarded as noise.
     """
+    # Remove Docling HTML comment noise and paired page-break dividers before
+    # splitting into sections. These artefacts appear mid-sentence and cause
+    # the chunker to split sentences at page boundaries, leaving precise
+    # regulatory figures (e.g. "98%") stranded in low-scoring chunk fragments.
+    markdown = _HTML_COMMENT_RE.sub('', markdown)
+    markdown = _PAGE_HR_RE.sub('\n', markdown)
+
     sections = _split_sections(markdown)
     chunks: list[dict] = []
     idx = 0

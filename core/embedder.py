@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re as _re
 import time
 from typing import Optional
 
@@ -38,6 +39,15 @@ _IAM_URL = "https://iam.cloud.ibm.com/identity/token"
 # across the entire batch payload, not per individual text.  Sending one
 # text at a time is the only reliable way to stay under the limit.
 BATCH_SIZE = 1
+
+# Regex to collapse dot-leaders (e.g. "........1" → " 1") that appear in
+# tables of contents and tokenise at 3–5 tokens per dot sequence.
+_DOT_LEADER = _re.compile(r'\.{3,}')
+
+# Hard character limit before embedding — more reliable than word count for
+# mixed English/Chinese text where a single CJK "word" can be 10+ tokens.
+# 600 chars ≈ 400 tokens for worst-case dense Chinese regulatory text.
+_MAX_CHARS = 600
 
 # All current WatsonX embedding models have a 512-token hard limit.
 # ibm/granite-embedding-278m-multilingual tokenises aggressively:
@@ -113,18 +123,8 @@ def embed_texts(
     token = _get_iam_token(_api_key)
     url   = _base_url + _EMBED_PATH
 
-    # Normalise and truncate each text before embedding:
-    # 1. Collapse dot-leaders (e.g. "........1" → " 1") — these appear in
-    #    tables of contents and tokenise at 3–5 tokens per dot sequence.
-    # 2. Hard-truncate by character count — more reliable than word count for
-    #    mixed English/Chinese text where a single CJK "word" can be 10+ tokens.
-    #    600 chars ≈ 400 tokens for worst-case dense Chinese regulatory text.
-    import re as _re
-    _dot_leader = _re.compile(r'\.{3,}')
-    _MAX_CHARS = 600
-
     def _truncate(text: str) -> str:
-        text = _dot_leader.sub(' ', text)
+        text = _DOT_LEADER.sub(' ', text)
         return text[:_MAX_CHARS] if len(text) > _MAX_CHARS else text
 
     texts = [_truncate(t) for t in texts]
