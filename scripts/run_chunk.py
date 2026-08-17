@@ -237,12 +237,7 @@ def main() -> None:
                 cos_count = jsonl_chunk_count(doc_id)
                 if cos_count >= 0:
                     if chunk_store is not None:
-                        astra_count = len(list(
-                            chunk_store._col.find(
-                                {"doc_id": doc_id},
-                                projection={"_id": 1},
-                            )
-                        ))
+                        astra_count = chunk_store.chunk_count(doc_id)
                         if astra_count == cos_count:
                             log.info("SKIP  %s (%d chunks, AstraDB in sync)", doc_id, cos_count)
                             skipped += 1

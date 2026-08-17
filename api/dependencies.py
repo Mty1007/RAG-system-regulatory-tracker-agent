@@ -19,7 +19,10 @@ def init_services() -> None:
 
 
 def get_document_store():
-    assert _store is not None, "DocumentStore not initialised"
+    if _store is None:
+        raise RuntimeError(
+            "DocumentStore not initialised — init_services() was not called"
+        )
     return _store
 
 

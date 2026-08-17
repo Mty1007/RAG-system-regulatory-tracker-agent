@@ -18,7 +18,7 @@ import time
 
 import requests
 
-API_BASE = os.environ.get("API_BASE", "http://127.0.0.1:8001")
+API_BASE = os.environ.get("API_BASE", "http://127.0.0.1:8000")
 CHAT_URL = f"{API_BASE}/chat/"
 
 QUESTIONS = [

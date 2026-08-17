@@ -926,3 +926,39 @@ A. Full exemption for ROs and LRs
 SFC for the RIQ requirements for different regulated activities.
 
 29 Either as","Yes, there are exemptions from SFC licensing requirements. The SFC may grant exemptions from obtaining a Regulatory Intermediary Qualification (RIQ) or passing a Licensing Representative Paper (LRP) under certain conditions. For example, an individual may be exempted if they have been licensed by the SFC within the past three years or are currently licensed and applying to carry on the same Relevant Activities with the same RIQ requirements and in the same role [7]. Additionally, the SFC may consider granting exemptions if an individual can demonstrate possession of comparable qualifications or industry experience [2][5]. Exemptions may also be granted under exceptional circumstances, such as having five years of related local experience over the past eight years while applying to carry on Relevant Activities with different RIQ requirements but in the same role [4].",The SFC may grant exemptions from the Regulatory Industry Qualification or Licensing Representative Paper requirements if an individual can demonstrate comparable qualifications or industry experience. Individuals who have been licensed by the SFC within the past three years applying for the same regulated activities in the same role may apply for a full exemption. Conditional exemptions are also available for those with at least five years of related local experience over the past eight years. The SFC may impose additional licensing conditions when granting any exemption.
+d34a25ce-3e54-4e6e-998c-12df46ccb5f4,What are the SFC requirements for client asset segregation?,"- 10.11 A Platform Operator should properly handle and safeguard client money and ensure that its Associated Entity does the same. This includes but is not limited to the following:
+- (a) Establishing one or more segregated accounts by the Associated Entity with an authorized financial institution in Hong Kong or another bank in another jurisdiction as agreed by the SFC from time to time.
+- (b) Within one business day after the Platform Operator or its Associated Entity","46. The following requirements apply to futures brokers without prejudice to the requirements under the Securities and Futures (Client Money) Rules and the Securities and Futures (Client Securities) Rules.
+47. A futures broker should ensure that client positions in futures contracts and their related margins are booked separately from its proprietary positions and their related margins in its accounts with counterparties.
+48. A futures broker should not use assets belonging","les"") that are made under section 148 of the SFO; and
+- (b) a licensed corporation and any associated entity of such corporation in complying with the Securities and Futures (Client Money) Rules (""Client Money Rules"") that are made under section 149 of the SFO.
+
+The two sets of Rules just mentioned are together referred to in this Guidance Note as the ""Client Assets Rules"". Each entity that is required to comply with the Client Assets Rules is referred to in this Guidance","The SFC requires the following for client asset segregation:
+
+1. **Segregated Accounts**: A Platform Operator or its Associated Entity must establish one or more segregated accounts with an authorized financial institution in Hong Kong or another bank in another jurisdiction as agreed by the SFC. Client money should be paid into these segregated accounts within one business day after receipt [1][4].
+
+2. **Futures Brokers**: Futures brokers must ensure that client positions in futures contracts and their related margins are booked separately from their proprietary positions and their related margins in their accounts with counterparties [2].
+
+3. **Virtual Assets**: For client virtual assets, the Platform Operator and its Associated Entity should hold a majority of these assets in cold storage (such as HSM-based cold storage) to minimize exposure to losses from hacking or compromise of the platform. Transactions out of cold storage should be minimized [7].
+
+4. **Exchange Participants**: Exchange participants of HKFE should segregate their clients' HKFE Trade ledger and ensure that all regular statements of account to clients contain details of deposits and withdrawals [5].
+
+These requirements are part of the broader Client Assets Rules, which include the Securities and Futures (Client Money) Rules and the Securities and Futures (Client Securities) Rules [3].",
+be9149e7-5351-4480-ac66-4c1c35a9be1c,證監會對客戶資產保管有什麼要求？,"(OFC Code). Among other things, the intermediary's licence or registration should not be subject to any condition that it shall not hold client assets. Where the intermediary is a licensed corporation, it should also satisfy the additional financial resources requirements (see paragraph 3.2.18). The intermediary should comply with all relevant requirements, including those set out in Appendix A to the OFC Code regarding the safekeeping of OFC scheme property. The SFC may","ria:
+- A. its licence or registration granted under section 116(1) or section 119(1) of the SFO (as the case may be) is not subject to the condition that it shall not hold client assets;
+
+Note: The terms ""hold"" and ""client assets"" are as defined in the SFO .
+
+- B. for a custodian which is a licensed corporation, it at all times maintains paid-up share capital of not less than HK$10 million and liquid capital of not less than HK$3 million;
+- C. the private OFC is, and remains","breakdown by type of virtual asset (as specified by the SFC) traded by clients;
+- (b) its operating expenses in the past 12 months and the amount of assets maintained in accordance with paragraph 6.1 above as at the end of the month; and
+- (c) other statistics on trading, custody and other incidental activities, as applicable, in Hong Kong.
+- 16.7 A Platform Operator, and its Associated Entity (where applicable), should also notify the SFC immediately of matters specified","根據證監會的規定，對客戶資產保管的要求包括以下幾點：
+
+1. 中介機構的牌照或註冊不得附帶任何條件，即不得持有客戶資產。如果中介機構是持牌法團，還需要滿足額外的財務資源要求，例如維持不少於1000萬港元的實繳股本和不少於300萬港元的流動資本 [1][2]。
+
+2. 平台營運者必須向客戶充分披露有關客戶資產的保管安排，包括各方的權利和義務以及客戶資產的存儲方式 [4]。
+
+3. 平台營運者應建立、實施和執行內部控制和程序，以每日監測客戶虛擬資產的總價值，並確定補償安排是否符合相關規定 [7]。
+
+4. 基金經理應與受託保管客戶資產的保管人簽訂正式的保管協議 [10]。",

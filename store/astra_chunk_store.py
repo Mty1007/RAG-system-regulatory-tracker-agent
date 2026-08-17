@@ -116,6 +116,10 @@ class AstraChunkStore:
 
     # ── read ──────────────────────────────────────────────────────────────────
 
+    def chunk_count(self, doc_id: str) -> int:
+        """Return the number of chunks stored in AstraDB for *doc_id*."""
+        return len(list(self._col.find({"doc_id": doc_id}, projection={"_id": 1})))
+
     def chunks_exist(self, doc_id: str) -> bool:
         """Return True if at least one chunk for *doc_id* is already stored."""
         doc = self._col.find_one({"doc_id": doc_id}, projection={"_id": 1})
