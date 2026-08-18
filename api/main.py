@@ -7,8 +7,7 @@ from pathlib import Path
 from fastapi import FastAPI
 
 from api.dependencies import init_services
-from api.routers import ingest
-from api.routers import chat
+from api.routers import chat, ingest
 
 # ── load .env before anything else ────────────────────────────────────────────
 _env_path = Path(__file__).resolve().parent.parent / ".env"
