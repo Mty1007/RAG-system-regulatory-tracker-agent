@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 from urllib.parse import urlparse
 
-SOURCES = ("SFC", "IA", "PCPD")
+SOURCES = ("SFC", "PCPD")
 
 
 def make_doc_id(source: str, download_url: str) -> str:
@@ -15,6 +15,10 @@ def make_doc_id(source: str, download_url: str) -> str:
     mint a new doc_id on every republish and break the "already ingested,
     skip" dedup check, silently re-ingesting the same document forever.
     """
+    if source not in SOURCES:
+        raise ValueError(
+            f"Unknown source {source!r} — must be one of {SOURCES}"
+        )
     path = urlparse(download_url).path
     digest = hashlib.sha1(path.encode("utf-8")).hexdigest()[:12]
     return f"{source.lower()}-{digest}"

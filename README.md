@@ -1,8 +1,8 @@
 # Regulatory Tracker Agent
 
-Ingestion pipeline for Hong Kong financial regulator documents (SFC, IA,
+Ingestion pipeline for Hong Kong financial regulator documents (SFC and
 PCPD). See [`docs/SPEC.md`](docs/SPEC.md) for the task spec and
-[`CLAUDE.md`](CLAUDE.md) for coding conventions.
+`CLAUDE.md` for coding conventions (local-only, gitignored).
 
 ## Setup
 
@@ -26,13 +26,12 @@ python -m pytest test/unit/ -v
 
 ## Status
 
-All three regulator clients are implemented and passing. See [`DONE.md`](DONE.md) for the full delivery summary.
+Both regulator clients are implemented and passing. See [`docs/HANDOFF.md`](docs/HANDOFF.md) for the full delivery summary.
 
 | PR | Source | What it does | Tests | Live count |
 |---|---|---|---|---|
 | PR 1 | PCPD | Curated list of 4 privacy documents | 2 / 2 ✓ | 4 docs |
-| PR 2 | IA | Scrapes Insurance Authority circulars by year | 2 / 2 ✓ | 18 (2026) · 42 (2025) |
-| PR 3 | SFC | Scrapes SFC Codes & Guidelines, expands Handbook popup | 3 / 3 ✓ | 16 Codes · 51 Guidelines |
+| PR 2 | SFC | Scrapes SFC Codes & Guidelines, expands Handbook popup | 3 / 3 ✓ | 16 Codes · 51 Guidelines |
 
 ## Workflow
 
