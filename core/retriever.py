@@ -41,7 +41,6 @@ import re
 from typing import Any, Optional
 
 import requests
-
 from astrapy import DataAPIClient
 
 logger = logging.getLogger(__name__)

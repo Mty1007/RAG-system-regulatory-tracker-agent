@@ -49,13 +49,6 @@ _DOT_LEADER = _re.compile(r'\.{3,}')
 # 600 chars ≈ 400 tokens for worst-case dense Chinese regulatory text.
 _MAX_CHARS = 600
 
-# All current WatsonX embedding models have a 512-token hard limit.
-# ibm/granite-embedding-278m-multilingual tokenises aggressively:
-#   - dot-leaders ("......1")  → 3–5 tokens per word
-#   - CJK characters           → 2–4 tokens per character (counted as 1 word)
-# _MAX_WORDS=100 gives ~400 tokens worst-case for mixed EN/ZH regulatory text.
-_MAX_WORDS = 100
-
 # Token cache: (access_token, expiry_epoch)
 _token_cache: tuple[str, float] = ("", 0.0)
 

@@ -1,7 +1,7 @@
 # Regulatory Tracker Agent — Handoff Notes
 
 ## Current Branch
-`fix/regulator-client-bugs`
+`fix/crossref-filter-and-ocr-fallback`
 
 ---
 
@@ -40,7 +40,7 @@ Retriever  — semantic ($vector) + keyword ($lexical) → RRF merge
     ▼
 Reranker   — cross-encoder (local) or WatsonX Rerank API
     ▼
-Generator  — IBM Granite LLM  (ibm/granite-13b-chat-v2)
+Generator  — Mistral via WatsonX  (mistralai/mistral-medium-2505)
     ▼
 POST /chat/  →  { answer, citations, model_used, chunk_count }
 ```

@@ -10,10 +10,10 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from core.retriever import retrieve
-from core.reranker import rerank
 from core.generator import generate_answer
 from core.rag_eval import log_request
+from core.reranker import rerank
+from core.retriever import retrieve
 
 router = APIRouter()
 

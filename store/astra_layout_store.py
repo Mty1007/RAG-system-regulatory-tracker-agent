@@ -21,10 +21,10 @@ import logging
 import os
 from typing import Any
 
-from cassandra.cluster import Cluster, Session
-from cassandra.auth import PlainTextAuthProvider
-from cassandra.policies import DCAwareRoundRobinPolicy
 from cassandra import ConsistencyLevel
+from cassandra.auth import PlainTextAuthProvider
+from cassandra.cluster import Cluster, Session
+from cassandra.policies import DCAwareRoundRobinPolicy
 
 logger = logging.getLogger(__name__)
 

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from typing import Any
 
 import requests
@@ -29,7 +30,54 @@ _GENERATE_PATH = "/ml/v1/text/generation?version=2023-10-25"
 # Maximum tokens to reserve for the LLM response
 _MAX_NEW_TOKENS = 1024
 
-import re
+# ── cross-reference chunk filter ─────────────────────────────────────────────
+# Some chunks from certain docs consist entirely of pointers to other documents
+# (e.g. "please refer to the Circular…") with no answerable content of their
+# own.  When the reranker scores these highly (because they contain the query
+# keywords), they land in the top-3 context slots that the faithfulness scorer
+# compares against — making a correct, well-grounded answer appear "unfaithful".
+#
+# The filter is intentionally narrow:
+#   - only triggers on SHORT chunks (< 300 chars)
+#   - only when ≥ 80% of sentences are cross-reference sentences
+# This means it will never fire on a chunk that contains actual rule text
+# alongside a reference, and never fires on any of the AML, PCPD, or other
+# SFC content chunks seen across all tested questions.
+_XREF_RE = re.compile(
+    r"please refer to|for details (of |see )|for further (details|information)|"
+    r"as set out in|guidance is (available|provided) (at|in)|"
+    r"refer to the (circular|guidance|guideline)",
+    re.IGNORECASE,
+)
+
+
+def _is_crossref_only(text: str) -> bool:
+    """Return True if *text* is a short chunk consisting almost entirely of
+    cross-references to other documents, with no substantive rule content."""
+    if len(text) >= 300:
+        return False
+    sentences = [s.strip() for s in re.split(r"[.!?\n]", text) if s.strip()]
+    if not sentences:
+        return False
+    xref_count = sum(1 for s in sentences if _XREF_RE.search(s))
+    return xref_count / len(sentences) >= 0.8
+
+
+def _filter_crossref_chunks(chunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Remove cross-reference-only chunks, keeping at least 3 chunks always.
+
+    Guarantees the LLM always receives a minimum of 3 context chunks even if
+    many are filtered — preventing empty-context answers.
+    """
+    filtered = [c for c in chunks if not _is_crossref_only(c["text"])]
+    removed = len(chunks) - len(filtered)
+    if removed:
+        logger.info(
+            "generator: removed %d cross-reference-only chunk(s) from context",
+            removed,
+        )
+    # Safety: never return fewer than 3 chunks (fall back to original if needed)
+    return filtered if len(filtered) >= 3 else chunks
 
 # System instruction prepended to every prompt
 _SYSTEM_PROMPT = """\
@@ -117,6 +165,10 @@ def generate_answer(
     project_id = os.environ["WATSONX_PROJECT_ID"]
     base_url   = os.environ["WATSONX_URL"].rstrip("/")
     model_id   = os.environ.get("WATSONX_LLM_MODEL", "mistralai/mistral-medium-2505")
+
+    # Remove cross-reference-only chunks before building the prompt so they
+    # don't occupy top-3 context slots and degrade faithfulness scoring.
+    chunks = _filter_crossref_chunks(chunks)
 
     token  = _get_iam_token(api_key)
     url    = base_url + _GENERATE_PATH
