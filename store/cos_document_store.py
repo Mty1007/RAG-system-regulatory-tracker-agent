@@ -128,5 +128,12 @@ class COSDocumentStore:
         try:
             self._client.head_object(Bucket=self._pdf_bucket, Key=f"pdfs/{doc_id}.pdf")
             return True
-        except ClientError:
-            return False
+        except ClientError as exc:
+            # Only treat a genuine "not found" as False.
+            # All other ClientErrors (AccessDenied, SlowDown, InternalError, etc.)
+            # are re-raised so callers are not silently misled into thinking the
+            # file is absent when the real cause is a permission or network problem.
+            error_code = exc.response["Error"]["Code"]
+            if error_code in ("NoSuchKey", "404", "NoSuchBucket"):
+                return False
+            raise

@@ -21,6 +21,7 @@ from __future__ import annotations
 import logging
 import os
 import re as _re
+import threading
 import time
 from typing import Optional
 
@@ -51,35 +52,41 @@ _MAX_CHARS = 600
 
 # Token cache: (access_token, expiry_epoch)
 _token_cache: tuple[str, float] = ("", 0.0)
+_token_lock = threading.Lock()
 
 
 def _get_iam_token(api_key: str) -> str:
-    """Fetch (or return cached) IBM IAM access token."""
-    global _token_cache
-    token, expiry = _token_cache
-    if token and time.time() < expiry:
-        return token
+    """Fetch (or return cached) IBM IAM access token.
 
-    resp = requests.post(
-        _IAM_URL,
-        data={
-            "grant_type": "urn:ibm:params:oauth:grant-type:apikey",
-            "apikey": api_key,
-        },
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
-        timeout=30,
-    )
-    if resp.status_code != 200:
-        raise RuntimeError(
-            f"IAM token request failed HTTP {resp.status_code}: {resp.text[:200]}"
+    The lock prevents concurrent requests from both seeing an expired token
+    and each triggering a redundant IAM fetch — only one fetch runs at a time.
+    """
+    global _token_cache
+    with _token_lock:
+        token, expiry = _token_cache
+        if token and time.time() < expiry:
+            return token
+
+        resp = requests.post(
+            _IAM_URL,
+            data={
+                "grant_type": "urn:ibm:params:oauth:grant-type:apikey",
+                "apikey": api_key,
+            },
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            timeout=30,
         )
-    payload = resp.json()
-    token = payload["access_token"]
-    # expires_in is in seconds; cache with a 10-minute safety buffer
-    expiry = time.time() + int(payload.get("expires_in", 3600)) - 600
-    _token_cache = (token, expiry)
-    logger.debug("IAM token refreshed")
-    return token
+        if resp.status_code != 200:
+            raise RuntimeError(
+                f"IAM token request failed HTTP {resp.status_code}: {resp.text[:200]}"
+            )
+        payload = resp.json()
+        token = payload["access_token"]
+        # expires_in is in seconds; cache with a 10-minute safety buffer
+        expiry = time.time() + int(payload.get("expires_in", 3600)) - 600
+        _token_cache = (token, expiry)
+        logger.debug("IAM token refreshed")
+        return token
 
 
 def embed_texts(

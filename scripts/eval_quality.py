@@ -52,9 +52,16 @@ if len(df) == 0:
     print("ERROR: log file is empty — send some questions to the API first.")
     sys.exit(1)
 
+# Derive context_fields from whichever contextN columns are present in the CSV
+# (the number varies depending on how many chunks the LLM actually received).
+_context_cols = [c for c in df.columns if c.startswith("context")]
+if not _context_cols:
+    print("ERROR: no context columns found in log — re-generate the log with the updated core/rag_eval.py.")
+    sys.exit(1)
+
 cfg = GenAIConfiguration(
     input_fields=["input_text"],
-    context_fields=["context1", "context2", "context3"],
+    context_fields=_context_cols,
     output_fields=["generated_text"],
 )
 

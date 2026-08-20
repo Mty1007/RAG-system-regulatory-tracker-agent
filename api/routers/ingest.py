@@ -43,6 +43,7 @@ def bulk_ingest(
         raise HTTPException(status_code=502, detail=f"Discovery error: {exc}") from exc
     ingested = 0
     skipped = 0
+    failed: list[str] = []
     for doc in docs:
         try:
             if store.get_document(doc["doc_id"]):
@@ -51,7 +52,14 @@ def bulk_ingest(
             store.insert_document(doc)
             ingested += 1
         except Exception as exc:
-            raise HTTPException(
-                status_code=502, detail=f"Store error on {doc.get('doc_id')}: {exc}"
-            ) from exc
+            # Accumulate failures instead of raising immediately so the caller
+            # always receives the counts for docs already processed.
+            failed.append(f"{doc.get('doc_id')}: {exc}")
+
+    if failed:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Store errors on {len(failed)} doc(s): {'; '.join(failed[:5])}; "
+                   f"ingested={ingested} skipped={skipped}",
+        )
     return BulkIngestResponse(ingested=ingested, skipped=skipped)
