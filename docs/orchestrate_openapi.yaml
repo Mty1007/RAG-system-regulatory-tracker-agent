@@ -1,0 +1,312 @@
+openapi: "3.0.3"
+
+info:
+  title: "Regulatory Tracker Agent"
+  description: >
+    RAG-powered assistant for Hong Kong financial regulatory documents
+    (SFC and PCPD).  Provides three tools for IBM watsonx Orchestrate:
+    ask a regulatory question, discover available documents, and trigger
+    a bulk ingest.  An optional quality-check tool is also exposed so
+    Orchestrate flows can explicitly evaluate and improve an answer.
+  version: "1.0.0"
+
+servers:
+  - url: "https://api.us-south.watson-orchestrate.cloud.ibm.com/instances/de4abfd1-0639-4ffa-a0dc-df442adc25f9"
+    description: "Regulatory Tracker Agent — us-south production"
+
+security:
+  - BearerAuth: []
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: >
+        Set Authorization: Bearer <ORCHESTRATE_API_KEY> on every request.
+        The key value is configured via the ORCHESTRATE_API_KEY environment
+        variable on the API server.
+
+  schemas:
+    # ── /chat ────────────────────────────────────────────────────────────────
+    ChatRequest:
+      type: object
+      required: [question]
+      properties:
+        question:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          description: "The regulatory question to answer."
+          example: "What are the cold storage requirements for virtual assets under SFC rules?"
+        source_filter:
+          type: string
+          nullable: true
+          enum: [SFC, PCPD]
+          description: >
+            Restrict retrieval to one regulator.
+            Omit or pass null to search across both SFC and PCPD.
+          example: "SFC"
+        top_k:
+          type: integer
+          default: 15
+          minimum: 1
+          maximum: 20
+          description: "Number of context chunks to pass to the LLM after reranking."
+
+    CitationOut:
+      type: object
+      properties:
+        doc_id:        { type: string }
+        source:        { type: string }
+        section_heading: { type: string }
+        page_start:    { type: integer }
+
+    ChatResponse:
+      type: object
+      properties:
+        answer:
+          type: string
+          description: "The best available answer after quality gating and escalation."
+        citations:
+          type: array
+          items:
+            $ref: "#/components/schemas/CitationOut"
+        model_used:    { type: string }
+        chunk_count:   { type: integer }
+        eval_passed:
+          type: boolean
+          description: "True if the answer passed the online quality threshold."
+        gap_type:
+          type: string
+          nullable: true
+          enum: [SOURCE_GAP, ANSWER_REPHRASE_GAP, BOTH, null]
+          description: "Gap type detected by the online evaluator, if any."
+        context_relevance:
+          type: number
+          format: float
+          nullable: true
+          description: "Final context relevance score (0–1) after any escalation."
+        faithfulness:
+          type: number
+          format: float
+          nullable: true
+          description: "Final faithfulness score (0–1) after any escalation."
+
+    # ── /ingest/discover ─────────────────────────────────────────────────────
+    DiscoverRequest:
+      type: object
+      required: [source]
+      properties:
+        source:
+          type: string
+          enum: [SFC, PCPD]
+          description: "Regulator whose document list to discover."
+          example: "SFC"
+        start_year:
+          type: integer
+          nullable: true
+          minimum: 2000
+          maximum: 2100
+        end_year:
+          type: integer
+          nullable: true
+          minimum: 2000
+          maximum: 2100
+
+    DiscoveredDocument:
+      type: object
+      properties:
+        doc_id:        { type: string }
+        title:         { type: string }
+        source:        { type: string }
+        issue_date:    { type: string }
+        document_type: { type: string }
+
+    DiscoverResponse:
+      type: object
+      properties:
+        total_docs:
+          type: integer
+        documents:
+          type: array
+          items:
+            $ref: "#/components/schemas/DiscoveredDocument"
+
+    # ── /ingest/bulk ─────────────────────────────────────────────────────────
+    BulkIngestResponse:
+      type: object
+      properties:
+        ingested: { type: integer }
+        skipped:  { type: integer }
+
+    # ── /eval/online ─────────────────────────────────────────────────────────
+    OnlineEvalRequest:
+      type: object
+      required: [question, chunks, answer]
+      properties:
+        question:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        chunks:
+          type: array
+          description: "Reranked chunk dicts as returned by the /chat/ pipeline."
+          items:
+            type: object
+        answer:
+          type: string
+          minLength: 1
+        source_filter:
+          type: string
+          nullable: true
+          enum: [SFC, PCPD]
+        top_k:
+          type: integer
+          default: 15
+          minimum: 1
+          maximum: 20
+
+    OnlineEvalResponse:
+      type: object
+      properties:
+        passed:                  { type: boolean }
+        gap_type:                { type: string, nullable: true }
+        context_relevance:       { type: number, format: float }
+        faithfulness:            { type: number, format: float }
+        threshold:               { type: number, format: float }
+        escalated:               { type: boolean }
+        improved_answer:         { type: string, nullable: true }
+        final_context_relevance: { type: number, format: float, nullable: true }
+        final_faithfulness:      { type: number, format: float, nullable: true }
+
+paths:
+  # ── ask_regulatory_question ───────────────────────────────────────────────
+  /chat/:
+    post:
+      operationId: ask_regulatory_question
+      summary: "Answer a Hong Kong regulatory question"
+      description: >
+        Retrieves the most relevant SFC and/or PCPD regulatory passages,
+        generates a grounded answer with inline citations, runs an online
+        quality check, and — if the score is below threshold — automatically
+        escalates (widens retrieval, expands query, or re-generates) before
+        returning.  The user always receives the best available answer.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChatRequest"
+            examples:
+              sfc_virtual_assets:
+                summary: "SFC virtual asset cold storage question"
+                value:
+                  question: "What percentage of client virtual assets must be held in cold storage?"
+                  source_filter: "SFC"
+                  top_k: 15
+              pcpd_data_breach:
+                summary: "PCPD data breach question (all sources)"
+                value:
+                  question: "What must a data user do after discovering a data breach?"
+                  top_k: 15
+      responses:
+        "200":
+          description: "Answer with citations and quality scores."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatResponse"
+        "422":
+          description: "Invalid source_filter value."
+        "502":
+          description: "Upstream service error (AstraDB, WatsonX)."
+
+  # ── discover_documents ────────────────────────────────────────────────────
+  /ingest/discover:
+    post:
+      operationId: discover_documents
+      summary: "List available regulatory documents from SFC or PCPD"
+      description: >
+        Scrapes the SFC codes/guidelines listing or returns the fixed PCPD
+        document set and returns normalised metadata for each document
+        (title, download_url, document_type, issue_date).
+        Does not download PDFs or modify any store.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DiscoverRequest"
+            examples:
+              sfc:
+                summary: "Discover all SFC documents"
+                value:
+                  source: "SFC"
+              pcpd:
+                summary: "Discover all PCPD documents"
+                value:
+                  source: "PCPD"
+      responses:
+        "200":
+          description: "List of discovered documents."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiscoverResponse"
+        "502":
+          description: "Discovery scrape failed."
+
+  # ── bulk_ingest_documents ─────────────────────────────────────────────────
+  /ingest/bulk:
+    post:
+      operationId: bulk_ingest_documents
+      summary: "Discover and ingest all documents from SFC or PCPD"
+      description: >
+        Discovers all documents for the given source and inserts any that
+        are not already in the document store.  Existing documents are
+        skipped (idempotent).  Returns counts of ingested and skipped docs.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DiscoverRequest"
+      responses:
+        "200":
+          description: "Ingest summary."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkIngestResponse"
+        "502":
+          description: "Discovery or store error."
+
+  # ── check_answer_quality ──────────────────────────────────────────────────
+  /eval/online:
+    post:
+      operationId: check_answer_quality
+      summary: "Evaluate answer quality and escalate if below threshold"
+      description: >
+        Scores a question/answer pair for faithfulness and context relevance
+        using ibm-watsonx-gov.  If either score is below ONLINE_EVAL_THRESHOLD
+        the adaptive retriever fires automatically and an improved answer is
+        returned.  Use this in an Orchestrate flow after ask_regulatory_question
+        when you want an explicit quality gate before presenting the answer.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OnlineEvalRequest"
+      responses:
+        "200":
+          description: "Quality report with optional improved answer."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OnlineEvalResponse"
+        "422":
+          description: "Invalid source_filter value."
+        "502":
+          description: "Evaluation or escalation error."
