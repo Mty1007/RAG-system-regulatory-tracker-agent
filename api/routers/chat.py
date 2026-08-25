@@ -48,7 +48,7 @@ class ChatRequest(BaseModel):
                     "Omit or pass null to search all sources.",
     )
     top_k: int = Field(
-        default=10,
+        default=15,
         ge=1,
         le=20,
         description="Number of chunks to pass to the LLM after reranking.",
@@ -116,6 +116,10 @@ class ChatResponse(BaseModel):
     citations: list[CitationOut]
     model_used: str
     chunk_count: int
+    eval_passed: bool = True
+    gap_type: Optional[str] = None
+    context_relevance: Optional[float] = None
+    faithfulness: Optional[float] = None
 
 
 # ── endpoint ──────────────────────────────────────────────────────────────────
@@ -222,9 +226,11 @@ def chat(req: ChatRequest) -> ChatResponse:
             citations=[],
             model_used="",
             chunk_count=0,
+            eval_passed=False,
         )
 
     citations = state.get("citations", [])
+    eval_result = state.get("eval_result", "PASS")
     return ChatResponse(
         answer=answer,
         citations=[
@@ -241,4 +247,6 @@ def chat(req: ChatRequest) -> ChatResponse:
         ],
         model_used=state.get("model_used", ""),
         chunk_count=len(state.get("chunks", [])),
+        eval_passed=eval_result == "PASS",
+        gap_type=None if eval_result == "PASS" else eval_result,
     )
