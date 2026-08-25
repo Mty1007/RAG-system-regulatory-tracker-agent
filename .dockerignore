@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# Tests
+test/
+.pytest_cache/
+.ruff_cache/
+
+# Git
+.git/
+.github/
+.githooks/
+
+# Docs & assets
+docs/
+*.pptx
+*.md
+!README.md
+
+# Eval logs & scripts
+rag_eval_*.csv
+chunk_run.log
+scripts/
+
+# Secrets — never include .env in image
+.env
+.env.*
+.env.save
+
+# IDE
+.bob/
+.vscode/
+.idea/
+
+# OpenAPI spec (not needed at runtime)
+openapi.json
