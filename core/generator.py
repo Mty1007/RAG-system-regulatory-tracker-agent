@@ -202,6 +202,14 @@ def generate_answer(
     results = resp.json().get("results", [])
     answer  = results[0].get("generated_text", "").strip() if results else ""
 
+    # Strip any chunk ID markers the LLM may have leaked into the answer.
+    # Patterns like 【pcpd-abc123__c0036】, 【source=sfc-abc,section=...】,
+    # 【1†sfc-abc__c0001】, 【†】 are internal references that must never
+    # appear in the user-facing answer.
+    answer = re.sub(r'【[^】]*】', '', answer).strip()
+    # Also strip bare [source:...] style markers
+    answer = re.sub(r'\[source:[^\]]*\]', '', answer).strip()
+
     # Parse explicit numeric references [1], [2] inside the generated answer
     cited_indices = set()
     for m in re.finditer(r"\[(\d+)\]", answer):

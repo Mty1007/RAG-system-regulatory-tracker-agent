@@ -60,6 +60,8 @@ _CJK_RE = re.compile(r"[\u4e00-\u9fff]")
 _KEYWORD_DOC_MAP: list[tuple[re.Pattern, str]] = [
     (re.compile(r"internal audit|audit function|audit department|audit committee",
                 re.IGNORECASE), "sfc-a90505b192cd"),  # SFC Internal Control Guidelines
+    (re.compile(r"personal data|client consent|data privacy|CID|client identification",
+                re.IGNORECASE), "sfc-4dca9266048c"),  # SFC Code of Conduct — client data/consent
 ]
 
 
