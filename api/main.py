@@ -7,7 +7,7 @@ from pathlib import Path
 from fastapi import FastAPI
 
 from api.dependencies import init_services
-from api.routers import chat, ingest
+from api.routers import agents, chat, ingest
 
 # ── load .env before anything else ────────────────────────────────────────────
 _env_path = Path(__file__).resolve().parent.parent / ".env"
@@ -28,3 +28,4 @@ async def _lifespan(app: FastAPI):  # noqa: ARG001
 app = FastAPI(title="Regulatory Tracker Agent", lifespan=_lifespan)
 app.include_router(ingest.router, prefix="/ingest", tags=["ingest"])
 app.include_router(chat.router, prefix="/chat", tags=["chat"])
+app.include_router(agents.router, prefix="/agent", tags=["agent"])
