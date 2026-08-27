@@ -95,7 +95,6 @@ def _format_citation(doc_id: str, source: str, section_heading: str, page_start:
     regulator = _SOURCE_LABELS.get(source, source)
     parts = [f"{regulator} — {title}"]
     if section_heading and section_heading != "—":
-        # Replace § symbol with "Section " for readability
         clean_heading = section_heading.replace("§", "Section ")
         parts.append(f"Section: {clean_heading}")
     if page_start and page_start > 0:
@@ -150,10 +149,8 @@ def _retrieve_candidates(
     wall-clock retrieval time for cross-regulator questions.
     """
     if source:
-        # Single-source path — unchanged from Phase 1 behaviour.
         return retrieve(question, source_filter=source, top_n=retrieve_n, top_k=top_k)
 
-    # ── parallel fan-out: SFC + PCPD simultaneously ───────────────────────────
     results: dict[str, list[dict]] = {}
     errors:  list[str] = []
 
@@ -171,7 +168,6 @@ def _retrieve_candidates(
                 logger.warning("parallel retrieve: %s failed — %s", src, exc)
 
     if errors and not results:
-        # Both searches failed — re-raise so the caller can return a 502.
         raise RuntimeError(f"All parallel retrieval calls failed: {'; '.join(errors)}")
 
     merged = _merge_chunks(list(results.values()), top_k)
