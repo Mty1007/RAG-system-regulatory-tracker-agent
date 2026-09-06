@@ -83,30 +83,33 @@ def _sliding_window_chars(
     Splits are made at whitespace boundaries where possible so words/CJK
     tokens are not cut mid-character.
     """
+    if overlap >= window:
+        overlap = 0
     step = window - overlap
-    if step <= 0:
-        step = window
 
     start = 0
     while start < len(text):
         end = min(start + window, len(text))
 
-        # Snap end to a whitespace boundary (scan back up to 20 chars)
-        # so we don't cut mid-word in English text.  CJK text has no spaces
-        # so this is a no-op there — that's fine, character boundaries are
-        # safe for CJK.
+        # Snap end to a whitespace boundary so we don't cut mid-word in
+        # English text.  CJK text has no spaces so this is a no-op there —
+        # character boundaries are safe for CJK.
+        snapped_end = end
         if end < len(text):
             snap = text.rfind(" ", start, end)
             if snap > start + window // 2:
-                end = snap
+                snapped_end = snap
 
-        chunk = text[start:end].strip()
+        chunk = text[start:snapped_end].strip()
         if chunk:
             yield chunk
 
-        if end >= len(text):
+        if snapped_end >= len(text):
             break
-        start = start + step
+        # Advance from the snapped end minus overlap so no text is skipped.
+        # Using the fixed step from the original end would leave the gap
+        # between snapped_end and (start + step) unrepresented in any chunk.
+        start = max(snapped_end - overlap, start + 1)
 
 
 def _split_sections(markdown: str) -> list[tuple[str, str]]:

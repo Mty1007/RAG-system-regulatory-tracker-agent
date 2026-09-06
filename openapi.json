@@ -1,0 +1,829 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Regulatory Tracker Agent",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/ingest/discover": {
+      "post": {
+        "tags": [
+          "ingest"
+        ],
+        "summary": "Discover",
+        "operationId": "discover_ingest_discover_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DiscoverRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiscoverResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ingest/bulk": {
+      "post": {
+        "tags": [
+          "ingest"
+        ],
+        "summary": "Bulk Ingest",
+        "operationId": "bulk_ingest_ingest_bulk_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkIngestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkIngestResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/chat/": {
+      "post": {
+        "tags": [
+          "chat"
+        ],
+        "summary": "Chat",
+        "description": "Answer a regulatory question via the LangGraph RAG agent.\n\nThe graph runs: research \u2192 generate \u2192 evaluate, with one automatic\nretry cycle if the evaluator flags low faithfulness.",
+        "operationId": "chat_chat__post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agent/plan": {
+      "post": {
+        "tags": [
+          "agent"
+        ],
+        "summary": "Planning Agent \u2014 decide source and search strategy",
+        "description": "Analyses the question to decide which regulator(s) to search (SFC, PCPD, or both) and which search strategy to use (hybrid or keyword). Returns a plan used by the Retrieval agent.",
+        "operationId": "plan_agent_plan_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlanRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agent/retrieval": {
+      "post": {
+        "tags": [
+          "agent"
+        ],
+        "summary": "Retrieval Agent \u2014 retrieve, generate and evaluate in one call",
+        "description": "Runs AstraDB retrieval (SFC + PCPD in parallel when no source_filter), applies a confidence gate with automatic retry, reranks, generates a grounded answer via WatsonX, and evaluates faithfulness. Returns the answer plus eval_result: PASS, RETRY, or LOW_CONFIDENCE.",
+        "operationId": "retrieval_agent_retrieval_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RetrievalRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RetrievalResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agent/cos": {
+      "post": {
+        "tags": [
+          "agent"
+        ],
+        "summary": "COS Agent \u2014 fetch richer context and regenerate answer",
+        "description": "When the Retrieval agent returns eval_result=RETRY, call this agent. It fetches the full markdown of the relevant documents from IBM COS, re-chunks them, merges with existing chunks, re-generates the answer, and re-evaluates faithfulness. Returns PASS or LOW_CONFIDENCE.",
+        "operationId": "cos_agent_cos_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/COSRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/COSResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "BulkIngestRequest": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "enum": [
+              "SFC",
+              "PCPD"
+            ],
+            "title": "Source"
+          },
+          "start_year": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 2100.0,
+                "minimum": 2000.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Year"
+          },
+          "end_year": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 2100.0,
+                "minimum": 2000.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Year"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source"
+        ],
+        "title": "BulkIngestRequest"
+      },
+      "BulkIngestResponse": {
+        "properties": {
+          "ingested": {
+            "type": "integer",
+            "title": "Ingested"
+          },
+          "skipped": {
+            "type": "integer",
+            "title": "Skipped"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ingested",
+          "skipped"
+        ],
+        "title": "BulkIngestResponse"
+      },
+      "COSRequest": {
+        "properties": {
+          "question": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Question",
+            "description": "The user's regulatory question."
+          },
+          "chunks": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Chunks",
+            "description": "Current low-quality chunks from the Retrieval agent."
+          },
+          "top_k": {
+            "type": "integer",
+            "maximum": 20.0,
+            "minimum": 1.0,
+            "title": "Top K",
+            "description": "Max chunks to return after COS enrichment.",
+            "default": 10
+          }
+        },
+        "type": "object",
+        "required": [
+          "question",
+          "chunks"
+        ],
+        "title": "COSRequest"
+      },
+      "COSResponse": {
+        "properties": {
+          "answer": {
+            "type": "string",
+            "title": "Answer",
+            "description": "Re-generated answer using COS-enriched context."
+          },
+          "citations": {
+            "items": {
+              "$ref": "#/components/schemas/CitationOut"
+            },
+            "type": "array",
+            "title": "Citations",
+            "description": "Source citations for the answer."
+          },
+          "model_used": {
+            "type": "string",
+            "title": "Model Used",
+            "description": "LLM model ID used for generation."
+          },
+          "chunks": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Chunks",
+            "description": "Enriched chunks after fetching full markdown from COS."
+          },
+          "eval_result": {
+            "type": "string",
+            "title": "Eval Result",
+            "description": "PASS or LOW_CONFIDENCE after COS re-evaluation."
+          },
+          "cos_fallback": {
+            "type": "boolean",
+            "title": "Cos Fallback",
+            "description": "Always True \u2014 confirms COS fallback ran."
+          }
+        },
+        "type": "object",
+        "required": [
+          "answer",
+          "citations",
+          "model_used",
+          "chunks",
+          "eval_result",
+          "cos_fallback"
+        ],
+        "title": "COSResponse"
+      },
+      "ChatRequest": {
+        "properties": {
+          "question": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Question"
+          },
+          "source_filter": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Filter",
+            "description": "Restrict retrieval to one regulator: SFC or PCPD. Omit or pass null to search all sources."
+          },
+          "top_k": {
+            "type": "integer",
+            "maximum": 20.0,
+            "minimum": 1.0,
+            "title": "Top K",
+            "description": "Number of chunks to pass to the LLM after reranking.",
+            "default": 10
+          }
+        },
+        "type": "object",
+        "required": [
+          "question"
+        ],
+        "title": "ChatRequest"
+      },
+      "ChatResponse": {
+        "properties": {
+          "answer": {
+            "type": "string",
+            "title": "Answer"
+          },
+          "citations": {
+            "items": {
+              "$ref": "#/components/schemas/CitationOut"
+            },
+            "type": "array",
+            "title": "Citations"
+          },
+          "model_used": {
+            "type": "string",
+            "title": "Model Used"
+          },
+          "chunk_count": {
+            "type": "integer",
+            "title": "Chunk Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "answer",
+          "citations",
+          "model_used",
+          "chunk_count"
+        ],
+        "title": "ChatResponse"
+      },
+      "CitationOut": {
+        "properties": {
+          "doc_id": {
+            "type": "string",
+            "title": "Doc Id"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "section_heading": {
+            "type": "string",
+            "title": "Section Heading"
+          },
+          "page_start": {
+            "type": "integer",
+            "title": "Page Start"
+          },
+          "display_citation": {
+            "type": "string",
+            "title": "Display Citation",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "doc_id",
+          "source",
+          "section_heading",
+          "page_start"
+        ],
+        "title": "CitationOut"
+      },
+      "DiscoverRequest": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "enum": [
+              "SFC",
+              "PCPD"
+            ],
+            "title": "Source"
+          },
+          "start_year": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 2100.0,
+                "minimum": 2000.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Year"
+          },
+          "end_year": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 2100.0,
+                "minimum": 2000.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Year"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source"
+        ],
+        "title": "DiscoverRequest"
+      },
+      "DiscoverResponse": {
+        "properties": {
+          "total_docs": {
+            "type": "integer",
+            "title": "Total Docs"
+          },
+          "documents": {
+            "items": {
+              "$ref": "#/components/schemas/DiscoveredDocument"
+            },
+            "type": "array",
+            "title": "Documents"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total_docs",
+          "documents"
+        ],
+        "title": "DiscoverResponse"
+      },
+      "DiscoveredDocument": {
+        "properties": {
+          "doc_id": {
+            "type": "string",
+            "title": "Doc Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "SFC",
+              "PCPD"
+            ],
+            "title": "Source"
+          },
+          "issue_date": {
+            "type": "string",
+            "title": "Issue Date",
+            "default": ""
+          },
+          "document_type": {
+            "type": "string",
+            "title": "Document Type",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "doc_id",
+          "title",
+          "source"
+        ],
+        "title": "DiscoveredDocument"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "PlanRequest": {
+        "properties": {
+          "question": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Question",
+            "description": "The user's regulatory question."
+          },
+          "source_filter": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Filter",
+            "description": "Override source: SFC or PCPD. Omit to let planner decide."
+          }
+        },
+        "type": "object",
+        "required": [
+          "question"
+        ],
+        "title": "PlanRequest"
+      },
+      "PlanResponse": {
+        "properties": {
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source",
+            "description": "Decided source: 'SFC', 'PCPD', or null (both)."
+          },
+          "strategy": {
+            "type": "string",
+            "title": "Strategy",
+            "description": "Search strategy: 'hybrid' or 'keyword'."
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason",
+            "description": "Short explanation of why this plan was chosen."
+          }
+        },
+        "type": "object",
+        "required": [
+          "source",
+          "strategy",
+          "reason"
+        ],
+        "title": "PlanResponse"
+      },
+      "RetrievalRequest": {
+        "properties": {
+          "question": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Question",
+            "description": "The user's regulatory question."
+          },
+          "source_filter": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Filter",
+            "description": "Restrict to one regulator: SFC or PCPD. Omit to search both."
+          },
+          "top_k": {
+            "type": "integer",
+            "maximum": 20.0,
+            "minimum": 1.0,
+            "title": "Top K",
+            "description": "Number of chunks to use for generation.",
+            "default": 10
+          },
+          "plan": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan",
+            "description": "Optional plan dict from the Planning agent. If omitted, the retrieval agent will search both sources."
+          }
+        },
+        "type": "object",
+        "required": [
+          "question"
+        ],
+        "title": "RetrievalRequest"
+      },
+      "RetrievalResponse": {
+        "properties": {
+          "answer": {
+            "type": "string",
+            "title": "Answer",
+            "description": "PRESENT THIS TO THE USER EXACTLY AS-IS. Do not rewrite, translate, expand or summarise. This is the final answer."
+          },
+          "citations": {
+            "items": {
+              "$ref": "#/components/schemas/CitationOut"
+            },
+            "type": "array",
+            "title": "Citations",
+            "description": "Show ONLY the display_citation field from each item as a numbered list. Never show doc_id, chunk IDs or any bracket markers."
+          },
+          "eval_result": {
+            "type": "string",
+            "title": "Eval Result",
+            "description": "PASS or LOW_CONFIDENCE \u2014 present the answer. RETRY \u2014 call COS Agent instead."
+          },
+          "model_used": {
+            "type": "string",
+            "title": "Model Used",
+            "description": "Internal \u2014 ignore this field."
+          },
+          "chunks": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Chunks",
+            "description": "Internal context \u2014 DO NOT use this to rewrite the answer. Pass chunks to COS Agent only if eval_result is RETRY."
+          },
+          "avg_score": {
+            "type": "number",
+            "title": "Avg Score",
+            "description": "Internal \u2014 ignore this field."
+          }
+        },
+        "type": "object",
+        "required": [
+          "answer",
+          "citations",
+          "eval_result",
+          "model_used",
+          "chunks",
+          "avg_score"
+        ],
+        "title": "RetrievalResponse"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  },
+  "servers": [
+    {
+      "url": "https://regulatory-tracker.2dwdpj77r0h6.us-south.codeengine.appdomain.cloud",
+      "description": "IBM Code Engine (us-south)"
+    }
+  ]
+}

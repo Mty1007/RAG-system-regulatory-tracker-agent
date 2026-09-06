@@ -41,7 +41,6 @@ import re
 from typing import Any, Optional
 
 import requests
-
 from astrapy import DataAPIClient
 
 logger = logging.getLogger(__name__)
@@ -61,6 +60,8 @@ _CJK_RE = re.compile(r"[\u4e00-\u9fff]")
 _KEYWORD_DOC_MAP: list[tuple[re.Pattern, str]] = [
     (re.compile(r"internal audit|audit function|audit department|audit committee",
                 re.IGNORECASE), "sfc-a90505b192cd"),  # SFC Internal Control Guidelines
+    (re.compile(r"personal data|client consent|data privacy|CID|client identification",
+                re.IGNORECASE), "sfc-4dca9266048c"),  # SFC Code of Conduct — client data/consent
 ]
 
 
@@ -179,12 +180,10 @@ def _expand_query(text: str) -> str:
 
 
 def _get_collection():
-    token    = os.environ["ASTRA_DB_APPLICATION_TOKEN"]
-    endpoint = os.environ["ASTRA_DB_API_ENDPOINT"].rstrip("/")
-    keyspace = os.environ.get("ASTRA_DB_KEYSPACE", "default_keyspace")
-    client   = DataAPIClient(token)
-    database = client.get_database(endpoint, keyspace=keyspace)
-    return database.get_collection(CHUNKS_COLLECTION)
+    # Delegates to the canonical implementation in store/astra_chunk_store.py
+    # so there is one copy of the connection logic rather than two that can drift.
+    from store.astra_chunk_store import _get_collection as _astra_get_collection  # noqa: E402
+    return _astra_get_collection()
 
 
 def retrieve(
@@ -271,6 +270,16 @@ def retrieve(
     # and inject them into the result set before final re-sort.
     for pattern, pinned_doc_id in _KEYWORD_DOC_MAP:
         if pattern.search(query):
+            # BUG 2 fix: respect source_filter — if caller restricted to PCPD,
+            # don't inject an SFC pinned doc.
+            pinned_source = pinned_doc_id.split("-")[0].upper()
+            if source_filter and source_filter.upper() != pinned_source:
+                logger.debug(
+                    "retrieve: skipping keyword inject for %s (source_filter=%s)",
+                    pinned_doc_id, source_filter,
+                )
+                continue
+
             logger.info("retrieve: keyword inject from doc_id=%s", pinned_doc_id)
             pin_cursor = collection.find_and_rerank(
                 {"doc_id": pinned_doc_id},
@@ -288,20 +297,29 @@ def retrieve(
                 pin_chunks.append(doc)
             if pin_chunks:
                 seen_pin: dict[str, dict] = {c["_id"]: c for c in chunks}
-                for c in pin_chunks:
-                    if c["_id"] not in seen_pin:
-                        seen_pin[c["_id"]] = c
-                # keep pinned chunks — re-sort everything by rerank_score,
-                # but give pinned chunks a floor score so they aren't last
-                max_score = max((c["rerank_score"] for c in seen_pin.values()), default=0.0)
-                for c in pin_chunks:
-                    if c["_id"] in seen_pin:
+                # BUG 3 fix: only inject chunks that are NOT already in the
+                # primary result set.  If a pinned chunk is already present,
+                # keep its primary rerank_score (from the same candidate pool
+                # and normalization baseline) — don't overwrite it with the
+                # incomparable score from the separate pinned fetch.
+                new_pin_chunks = [c for c in pin_chunks if c["_id"] not in seen_pin]
+                for c in new_pin_chunks:
+                    seen_pin[c["_id"]] = c
+                if new_pin_chunks:
+                    # Give newly-injected pinned chunks a floor score so they
+                    # aren't sorted to the bottom, then re-sort.
+                    max_score = max(
+                        (c["rerank_score"] for c in chunks), default=0.0
+                    )
+                    for c in new_pin_chunks:
                         seen_pin[c["_id"]]["rerank_score"] = max(
                             c["rerank_score"], max_score * 0.5
                         )
                 chunks = sorted(seen_pin.values(),
                                 key=lambda x: x["rerank_score"], reverse=True)[:top_k]
-                logger.info("retrieve: injected %d pinned chunks", len(pin_chunks))
+                logger.info(
+                    "retrieve: injected %d new pinned chunks", len(new_pin_chunks)
+                )
 
     # ── query expansion: also search with synonym-expanded query ─────────────
     # Runs for all queries (EN and ZH) to bridge vocabulary mismatches between
